@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-temp-*/
+.ruff_cache/
+.mypy_cache/
+data/raw/
+data/processed/
+data/*.sqlite3
+ml/artifacts/
+*.egg-info/

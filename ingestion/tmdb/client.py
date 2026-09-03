@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from difflib import SequenceMatcher
+from urllib.parse import urlparse
+
+import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from ingestion.letterboxd.parser import normalize_title
+
+
+class TmdbError(RuntimeError):
+    pass
+
+
+class TmdbNotFound(TmdbError):
+    pass
+
+
+def _check_response(response: httpx.Response, *, resource: str) -> None:
+    if response.status_code == 429:
+        raise TmdbError("TMDB rate limit exceeded; retry later")
+    if response.status_code == 404:
+        raise TmdbNotFound(f"TMDB resource not found: {resource}")
+    if response.is_error:
+        raise TmdbError(f"TMDB request failed with status {response.status_code}: {resource}")
+
+
+@dataclass(frozen=True)
+class MatchCandidate:
+    tmdb_id: int
+    title: str
+    year: int | None
+    confidence: float
+
+
+@dataclass(frozen=True)
+class MatchResult:
+    status: str
+    candidate: MatchCandidate | None
+    candidates: tuple[MatchCandidate, ...]
+
+
+class TmdbClient:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://api.themoviedb.org/3",
+        transport: httpx.BaseTransport | None = None,
+    ):
+        if not api_key:
+            raise ValueError("TMDB_API_KEY is required for TMDB matching")
+        self._client = httpx.Client(
+            base_url=base_url,
+            params={"api_key": api_key},
+            timeout=20,
+            transport=transport,
+            follow_redirects=True,
+        )
+        # Public page requests intentionally use a separate client so the TMDB
+        # API key is never attached to a Letterboxd URL.
+        self._public_client = httpx.Client(
+            timeout=20, transport=transport, follow_redirects=True
+        )
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def letterboxd_tmdb_id(self, source_url: str) -> int | None:
+        """Resolve Letterboxd's own canonical TMDB link for a film page."""
+        parsed = urlparse(source_url)
+        if parsed.scheme != "https" or parsed.hostname not in {"boxd.it", "letterboxd.com"}:
+            return None
+        response = self._public_client.get(source_url)
+        _check_response(response, resource="Letterboxd film link")
+        match = re.search(r"themoviedb\.org/movie/(\d+)", response.text)
+        return int(match.group(1)) if match else None
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def search_movie(self, title: str, year: int | None = None) -> list[dict]:
+        params: dict[str, str | int] = {"query": title, "include_adult": "false"}
+        if year:
+            params["year"] = year
+        response = self._client.get("/search/movie", params=params)
+        _check_response(response, resource="movie search")
+        return response.json().get("results", [])
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def movie_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict:
+        params = {"append_to_response": append_to_response} if append_to_response else None
+        response = self._client.get(f"/movie/{tmdb_id}", params=params)
+        _check_response(response, resource=f"movie {tmdb_id}")
+        return response.json()
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def search_tv(self, title: str, year: int | None = None) -> list[dict]:
+        params: dict[str, str | int] = {"query": title, "include_adult": "false"}
+        if year:
+            params["first_air_date_year"] = year
+        response = self._client.get("/search/tv", params=params)
+        _check_response(response, resource="TV search")
+        return response.json().get("results", [])
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def tv_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict:
+        params = {"append_to_response": append_to_response} if append_to_response else None
+        response = self._client.get(f"/tv/{tmdb_id}", params=params)
+        _check_response(response, resource=f"TV series {tmdb_id}")
+        return response.json()
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def discover_movies(
+        self,
+        *,
+        release_date_gte: str,
+        release_date_lte: str,
+        page: int = 1,
+        region: str = "US",
+        minimum_votes: int = 20,
+    ) -> dict:
+        response = self._client.get(
+            "/discover/movie",
+            params={
+                "include_adult": "false",
+                "include_video": "false",
+                "language": "en-US",
+                "page": page,
+                "region": region,
+                "primary_release_date.gte": release_date_gte,
+                "primary_release_date.lte": release_date_lte,
+                "sort_by": "popularity.desc",
+                "vote_count.gte": minimum_votes,
+            },
+        )
+        _check_response(response, resource="movie discovery")
+        return response.json()
+
+    def close(self) -> None:
+        self._client.close()
+        self._public_client.close()
+
+
+def match_movie(
+    title: str,
+    year: int | None,
+    results: list[dict],
+    accept_threshold: float = 0.90,
+    ambiguity_margin: float = 0.04,
+) -> MatchResult:
+    normalized = normalize_title(title)
+    candidates: list[MatchCandidate] = []
+    for result in results:
+        candidate_title = result.get("title") or result.get("original_title") or ""
+        release = result.get("release_date") or ""
+        candidate_year = int(release[:4]) if len(release) >= 4 and release[:4].isdigit() else None
+        title_score = SequenceMatcher(None, normalized, normalize_title(candidate_title)).ratio()
+        year_score = 0.0
+        if year is None or candidate_year is None:
+            year_score = 0.5
+        elif candidate_year == year:
+            year_score = 1.0
+        elif abs(candidate_year - year) == 1:
+            year_score = 0.5
+        confidence = round(0.82 * title_score + 0.18 * year_score, 4)
+        candidates.append(
+            MatchCandidate(int(result["id"]), candidate_title, candidate_year, confidence)
+        )
+    candidates.sort(key=lambda item: item.confidence, reverse=True)
+    if not candidates or candidates[0].confidence < accept_threshold:
+        return MatchResult("unresolved", None, tuple(candidates[:5]))
+    if (
+        len(candidates) > 1
+        and candidates[0].confidence - candidates[1].confidence < ambiguity_margin
+    ):
+        return MatchResult("ambiguous", None, tuple(candidates[:5]))
+    return MatchResult("matched", candidates[0], tuple(candidates[:5]))
