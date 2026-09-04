@@ -7,6 +7,7 @@ from recommendation.baselines.popularity import PopularityBaseline
 from recommendation.collaborative.latent_factor import LatentFactorModel
 from recommendation.ranking.current_catalog import (
     classify_popularity,
+    humanize_caution_matches,
     humanize_metadata_matches,
     preselect_movielens_candidates,
     rank_current_candidates,
@@ -107,7 +108,7 @@ def test_bottom_result_explains_negative_fit() -> None:
     )[0].to_dict()
 
     assert ranked["why_you_may_not_like_it"]
-    assert "lower ratings" in ranked["why_you_may_not_like_it"][0]
+    assert "rate horror films lower" in ranked["why_you_may_not_like_it"][0]
 
 
 def test_catalog_preselection_honors_year_and_exclusions() -> None:
@@ -154,3 +155,15 @@ def test_metadata_matches_are_explained_as_natural_language() -> None:
     )
 
     assert reason == "stories involving friendship, films from the 1990s, and drama films"
+
+
+def test_caution_matches_are_clear_and_natural() -> None:
+    reason = humanize_caution_matches(
+        ("genre: drama", "story/theme: 1940s", "original language: fr")
+    )
+
+    assert reason == (
+        "you have tended to rate drama films lower, period stories set in the 1940s have "
+        "been less reliable for you, and French-language films have been less predictable "
+        "matches for you"
+    )

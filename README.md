@@ -31,6 +31,14 @@ is no dataset download or multi-hour training step. In the current installation,
 **Manage profile → Download profile**; on the other laptop choose **Add profile** and use
 that ZIP. Only rated films, latest reviews, watched dates, and rewatch counts are moved.
 
+### Opening the project in Codex on another laptop
+
+Add or clone `https://github.com/JackFogerson/movie-compass` as a Codex project, open a
+task in that project, and ask Codex to run `setup.ps1` and start the app. The repository
+contains no user profile. The one-time setup installs dependencies and asks you to enter
+the TMDB key locally; after that, import the profile ZIPs and ranking can use the bundled
+catalog/model immediately without downloading MovieLens or retraining the shared model.
+
 TMDB cache files are intentionally refreshed locally instead of stored in Git history:
 TMDB limits API-data caching to six months, while Git history is permanent. The API key
 is also never committed. See `THIRD_PARTY_NOTICES.md`.

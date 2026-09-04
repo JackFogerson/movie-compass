@@ -43,7 +43,9 @@ def test_group_ranking_shows_every_person_and_protects_low_score(
     assert len(report["recommendations"][0]["individual_scores"]) == 2
     assert "Scores run from" in report["recommendations"][0]["group_reason"]
     assert report["most_divisive"][0]["tmdb_id"] == 10
+    assert report["most_divisive"][0]["featured_enthusiast"] == "alice"
     assert "taste-split" in report["most_divisive"][0]["group_reason"]
+    assert report["most_divisive"][1]["featured_enthusiast"] == "bob"
     assert "bob is predicted at 4.20" in report["most_divisive"][1]["group_reason"]
 
 
@@ -127,6 +129,37 @@ def test_divisive_list_scores_person_specific_candidate_union(monkeypatch) -> No
     ]
     assert enthusiasts == ["alice", "bob"]
     assert report["eligible_for_everyone"] == 2
+
+
+def test_split_section_returns_one_enthusiast_movie_per_person(monkeypatch) -> None:
+    users = ["alice", "bob", "carol"]
+    scores = {
+        "alice": {10: 4.8, 20: 2.8, 30: 3.0},
+        "bob": {10: 2.9, 20: 4.7, 30: 2.7},
+        "carol": {10: 2.6, 20: 2.5, 30: 4.6},
+    }
+
+    def fake_generate(_artifact, *, user, candidate_tmdb_ids=None, **_kwargs):
+        if candidate_tmdb_ids is None:
+            return {
+                "recommendations": [
+                    _movie(tmdb_id, scores[user][tmdb_id], user)
+                    for tmdb_id in (10, 20, 30)
+                ]
+            }
+        return {
+            "recommendations": [
+                _movie(tmdb_id, scores[user][tmdb_id], user) for tmdb_id in (10, 20, 30)
+            ]
+        }
+
+    monkeypatch.setattr(service, "generate_recommendations", fake_generate)
+    report = service.generate_group_recommendations(
+        Path("three-person-artifact"), users, limit=3
+    )
+
+    assert [movie["featured_enthusiast"] for movie in report["most_divisive"]] == users
+    assert [movie["tmdb_id"] for movie in report["most_divisive"]] == [10, 20, 30]
 
 
 def test_group_rewatch_penalty_scales_with_watched_fraction(monkeypatch) -> None:

@@ -100,6 +100,9 @@ class TmdbContentModel:
             if prefix not in FEATURE_LABELS:
                 continue
             readable = value.replace("_", " ")
+            if prefix == "language" and readable in {"en", "unknown"}:
+                # English is too common in this catalog to be a useful, readable warning.
+                continue
             if prefix == "decade" and readable.isdigit():
                 readable = f"{readable}s"
             label = f"{FEATURE_LABELS[prefix]}: {readable}"

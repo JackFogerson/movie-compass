@@ -279,9 +279,12 @@ button:disabled { cursor: not-allowed; opacity: .66; }
 .movie-copy { min-width: 0; }
 .expectation-reason { max-width: 850px; margin: 10px 0; color: #c8ced5; font-size: .9rem; line-height: 1.6; }
 .explanations { margin: 7px 0 0; padding-left: 18px; color: var(--muted); font-size: .82rem; line-height: 1.5; }
-.risk-explanation { margin: 12px 0; padding: 10px 12px; border-left: 2px solid #8d6741; background: rgba(141, 103, 65, .08); color: #c8ced5; font-size: .82rem; line-height: 1.5; }
-.risk-explanation strong { color: #e2c7a8; }
+.risk-explanation { margin: 10px 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
+.risk-explanation strong { color: inherit; }
 .risk-explanation ul { margin: 5px 0 0; padding-left: 18px; }
+.empty-profile-state { margin: 18px 0; padding: 22px; border: 1px dashed #46515d; border-radius: 12px; background: var(--surface-soft); }
+.empty-profile-state strong { font: 500 1.35rem Georgia, serif; }
+.empty-profile-state p { margin: 7px 0 0; color: var(--muted); line-height: 1.55; }
 details { color: var(--muted); font-size: .78rem; }
 .movie-main details { margin-top: 12px; }
 summary { cursor: pointer; }

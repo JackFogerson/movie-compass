@@ -15,3 +15,5 @@ def test_frontend_is_served() -> None:
     assert "Movie night" in response.text
     assert "Add or edit one movie" in response.text
     assert "Model accuracy" in response.text
+    assert 'data-user=""' in response.text
+    assert "This copy of Movie Compass has no personal data" in response.text

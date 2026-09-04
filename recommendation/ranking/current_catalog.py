@@ -72,6 +72,48 @@ def humanize_metadata_matches(matches: tuple[str, ...]) -> str:
     return _join_naturally(readable)
 
 
+def humanize_caution_matches(matches: tuple[str, ...]) -> str:
+    """Turn negative model features into direct, natural-language cautions."""
+    readable: list[str] = []
+    for match in matches:
+        kind, _, value = match.partition(": ")
+        value = value.strip()
+        if kind == "genre":
+            readable.append(f"you have tended to rate {value.casefold()} films lower")
+        elif kind == "story/theme":
+            if len(value) == 5 and value[:4].isdigit() and value.endswith("s"):
+                readable.append(
+                    f"period stories set in the {value} have been less reliable for you"
+                )
+            else:
+                readable.append(
+                    f"stories centered on {value} have been less consistent matches for you"
+                )
+        elif kind == "director":
+            readable.append(f"films directed by {value.title()} have been a mixed fit for you")
+        elif kind == "cast member":
+            readable.append(
+                f"films featuring {value.title()} have not matched your taste as consistently"
+            )
+        elif kind == "release era":
+            readable.append(f"movies from the {value} have usually scored lower for you")
+        elif kind == "original language":
+            language_names = {
+                "de": "German",
+                "es": "Spanish",
+                "fr": "French",
+                "it": "Italian",
+                "ja": "Japanese",
+                "ko": "Korean",
+                "zh": "Chinese",
+            }
+            language = language_names.get(value.casefold(), value.upper())
+            readable.append(
+                f"{language}-language films have been less predictable matches for you"
+            )
+    return _join_naturally(readable)
+
+
 def classify_popularity(year: int | None, evidence_count: int) -> str:
     """Classify audience reach; this is deliberately separate from predicted quality."""
     if evidence_count >= 10_000:
@@ -160,8 +202,7 @@ class RankedMovie:
         cautions: list[str] = []
         if self.caution_matches:
             cautions.append(
-                "Your lower ratings are most associated with "
-                f"{humanize_metadata_matches(self.caution_matches)}."
+                f"One possible concern: {humanize_caution_matches(self.caution_matches)}."
             )
         if self.relative_to_profile == "below_typical":
             cautions.append(

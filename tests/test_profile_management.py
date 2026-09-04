@@ -112,6 +112,17 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
         assert session.scalar(select(func.count()).select_from(ImportMapping)) == 0
 
 
+def test_fresh_install_can_start_without_profiles(monkeypatch) -> None:
+    session_factory = _session_factory()
+    main_module = import_module("app.main")
+    monkeypatch.setattr(main_module, "SessionLocal", session_factory)
+
+    response = TestClient(app).get("/profiles")
+
+    assert response.status_code == 200
+    assert response.json() == {"profiles": []}
+
+
 def test_profile_export_is_rating_only_and_reimportable(monkeypatch) -> None:
     session_factory = _session_factory()
     with session_factory() as session:

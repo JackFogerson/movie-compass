@@ -168,36 +168,41 @@ def _lowest_group_reason(individual: list[dict]) -> str:
     )
 
 
-def _balanced_divisive_rows(rows: list[dict], users: list[str], limit: int) -> list[dict]:
-    ranked = sorted(rows, key=lambda item: item["group_spread"], reverse=True)
-    by_enthusiast = {user: [] for user in users}
-    for row in ranked:
-        strongest = max(row["individual_scores"], key=lambda item: item["expected_rating"])["user"]
-        by_enthusiast[str(strongest)].append(row)
+def _per_person_divisive_rows(rows: list[dict], users: list[str]) -> list[dict]:
+    """Choose each person's widest split where that person is uniquely most enthusiastic."""
     selected: list[dict] = []
-    used: set[int] = set()
-    while len(selected) < limit:
-        progressed = False
-        for user in users:
-            candidates = by_enthusiast[user]
-            while candidates and int(candidates[0]["tmdb_id"]) in used:
-                candidates.pop(0)
-            if not candidates:
+    for user in users:
+        candidates = []
+        for row in rows:
+            scores = {
+                item["user"]: float(item["expected_rating"])
+                for item in row["individual_scores"]
+            }
+            other_scores = [score for candidate, score in scores.items() if candidate != user]
+            if not other_scores or scores[user] <= max(other_scores):
                 continue
-            row = candidates.pop(0)
-            selected.append(row)
-            used.add(int(row["tmdb_id"]))
-            progressed = True
-            if len(selected) >= limit:
-                break
-        if not progressed:
-            break
-    for row in ranked:
-        if len(selected) >= limit:
-            break
-        if int(row["tmdb_id"]) not in used:
-            selected.append(row)
-            used.add(int(row["tmdb_id"]))
+            candidates.append(row)
+        if not candidates:
+            continue
+        winner = max(
+            candidates,
+            key=lambda item: (
+                item["group_spread"],
+                next(
+                    score["expected_rating"]
+                    for score in item["individual_scores"]
+                    if score["user"] == user
+                ),
+            ),
+        )
+        featured = dict(winner)
+        featured["featured_enthusiast"] = user
+        featured["featured_enthusiast_display_name"] = next(
+            item.get("display_name", user)
+            for item in featured["individual_scores"]
+            if item["user"] == user
+        )
+        selected.append(featured)
     return selected
 
 
@@ -401,13 +406,11 @@ def generate_group_recommendations(
         if len(lowest) >= bottom_limit:
             break
     most_divisive = []
-    for row in _balanced_divisive_rows(rows, normalized, divisive_limit):
+    for row in _per_person_divisive_rows(rows, normalized):
         divisive = dict(row)
         divisive["rank"] = len(most_divisive) + 1
         divisive["group_reason"] = _divergence_reason(divisive["individual_scores"])
         most_divisive.append(divisive)
-        if len(most_divisive) >= divisive_limit:
-            break
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "users": normalized,

@@ -39,6 +39,8 @@ const updateProfileStatus = document.querySelector("#update-profile-status");
 const deleteProfileConfirmation = document.querySelector("#delete-profile-confirmation");
 const deleteProfileButton = document.querySelector("#delete-profile");
 const profileEditorStatus = document.querySelector("#profile-editor-status");
+const profileEditor = document.querySelector(".profile-editor");
+const emptyProfileState = document.querySelector("#empty-profile-state");
 const profileArchiveInput = document.querySelector("#profile-archive");
 const importButton = document.querySelector("#import-profile");
 const importStatus = document.querySelector("#import-status");
@@ -208,6 +210,9 @@ function renderMovie(movie, rankLabel = null) {
   const riskBlock = card.querySelector(".risk-explanation");
   const cautions = movie.why_you_may_not_like_it || [];
   if (cautions.length) {
+    riskBlock.querySelector("strong").textContent = isGroup
+      ? "What might not work for the group"
+      : "What might not click for you";
     riskBlock.querySelector(".cautions").innerHTML = cautions
       .map((value) => `<li>${escapeHtml(value)}</li>`)
       .join("");
@@ -318,7 +323,7 @@ async function responseJson(response) {
 function updateProfileSummary() {
   const profile = savedProfiles.find((item) => item.slug === user);
   if (!profile) {
-    profileSummary.textContent = `Recommendations for ${user}`;
+    profileSummary.textContent = "No profiles yet · import one to begin";
     return;
   }
   const attention = profile.pending
@@ -329,6 +334,8 @@ function updateProfileSummary() {
 
 function syncProfileEditor() {
   const profile = savedProfiles.find((item) => item.slug === user);
+  profileEditor.hidden = !profile;
+  emptyProfileState.hidden = Boolean(profile);
   profileDisplayNameInput.value = profile?.display_name || "";
   profileIdInput.value = profile?.slug || user;
   deleteProfileConfirmation.value = "";
@@ -350,21 +357,32 @@ function syncProfileEditor() {
 
 function populateProfileSelectors(preferred = null) {
   const previousGroup = groupProfileInputs.map((input) => input.value);
-  profileSelect.innerHTML = savedProfiles
-    .map((profile) => `<option value="${escapeHtml(profile.slug)}">${escapeHtml(profile.display_name)}</option>`)
-    .join("");
+  profileSelect.innerHTML = savedProfiles.length
+    ? savedProfiles.map((profile) => `<option value="${escapeHtml(profile.slug)}">${escapeHtml(profile.display_name)}</option>`).join("")
+    : '<option value="">No profiles yet</option>';
   if (savedProfiles.some((profile) => profile.slug === preferred)) user = preferred;
   else if (!savedProfiles.some((profile) => profile.slug === user) && savedProfiles.length) user = savedProfiles[0].slug;
+  else if (!savedProfiles.length) user = "";
   profileSelect.value = user;
+  profileSelect.disabled = !savedProfiles.length;
   document.body.dataset.user = user;
 
+  const automaticGroup = [
+    ...savedProfiles.filter((profile) => profile.slug === user),
+    ...savedProfiles.filter((profile) => profile.slug !== user),
+  ].slice(0, 4);
   groupProfileInputs.forEach((input, index) => {
     const optional = index > 1;
     input.innerHTML = `${optional ? '<option value="">Not added</option>' : '<option value="">Choose a profile</option>'}` +
       savedProfiles.map((profile) => `<option value="${escapeHtml(profile.slug)}">${escapeHtml(profile.display_name)}</option>`).join("");
-    const fallback = index === 0 ? user : index === 1 ? savedProfiles.find((profile) => profile.slug !== user)?.slug : "";
+    const fallback = automaticGroup[index]?.slug || "";
     input.value = savedProfiles.some((profile) => profile.slug === previousGroup[index]) ? previousGroup[index] : (fallback || "");
+    input.disabled = !savedProfiles.length;
   });
+  applyButton.disabled = !savedProfiles.length;
+  searchMovieButton.disabled = !savedProfiles.length;
+  buildGroupButton.disabled = savedProfiles.length < 2;
+  searchGroupMovieButton.disabled = savedProfiles.length < 2;
   updateProfileSummary();
   syncProfileEditor();
 }
@@ -386,6 +404,12 @@ function switchView(view) {
 }
 
 async function loadRecommendations({ refresh = false } = {}) {
+  if (!user) {
+    metrics.innerHTML = "";
+    list.innerHTML = '<div class="empty">No recommendations yet. Add your first profile above.</div>';
+    lowestList.innerHTML = '<div class="empty">This section will appear after a profile is imported.</div>';
+    return false;
+  }
   applyButton.disabled = true;
   applyButton.textContent = "Loading…";
   list.innerHTML = `<div class="empty">${refresh ? "Rebuilding this person's ranking…" : "Loading recommendations…"}</div>`;
@@ -759,7 +783,7 @@ async function buildGroupRecommendations() {
     });
     groupLowestHeading.hidden = !(result.lowest_recommendations || []).length;
     (result.most_divisive || []).forEach((movie, index) => {
-      groupDivisiveResults.append(renderMovie(movie, `SPLIT ${index + 1}`));
+      groupDivisiveResults.append(renderMovie(movie, `${movie.featured_enthusiast_display_name || `PERSON ${index + 1}`} PICK`));
     });
     groupDivisiveHeading.hidden = !(result.most_divisive || []).length;
   } catch (error) {
