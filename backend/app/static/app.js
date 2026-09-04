@@ -21,6 +21,7 @@ const rebuildProfileButton = document.querySelector("#rebuild-profile");
 const showProfileStatsButton = document.querySelector("#show-profile-stats");
 const profileStats = document.querySelector("#profile-stats");
 const showProfileAccuracyButton = document.querySelector("#show-profile-accuracy");
+const exportProfileButton = document.querySelector("#export-profile");
 const profileAccuracy = document.querySelector("#profile-accuracy");
 const manualMovieQueryInput = document.querySelector("#manual-movie-query");
 const manualMovieYearInput = document.querySelector("#manual-movie-year");
@@ -203,6 +204,15 @@ function renderMovie(movie, rankLabel = null) {
       .join("");
   } else {
     explanationList.remove();
+  }
+  const riskBlock = card.querySelector(".risk-explanation");
+  const cautions = movie.why_you_may_not_like_it || [];
+  if (cautions.length) {
+    riskBlock.querySelector(".cautions").innerHTML = cautions
+      .map((value) => `<li>${escapeHtml(value)}</li>`)
+      .join("");
+  } else {
+    riskBlock.remove();
   }
   const metadata = card.querySelector(".movie-metadata");
   const metadataRows = [];
@@ -502,6 +512,35 @@ async function showProfileAccuracy() {
   } finally {
     showProfileAccuracyButton.disabled = false;
     showProfileAccuracyButton.textContent = "Model accuracy";
+  }
+}
+
+async function exportProfile() {
+  exportProfileButton.disabled = true;
+  exportProfileButton.textContent = "Preparing…";
+  profileEditorStatus.textContent = "Preparing a portable, rating-only profile backup.";
+  try {
+    const response = await fetch(`/profiles/${encodeURIComponent(user)}/export`);
+    if (!response.ok) {
+      const result = await responseJson(response);
+      throw new Error(result.detail || "Profile could not be exported");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `movie-compass-${user}.zip`;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    profileEditorStatus.textContent = `${filename} downloaded. Import this ZIP on another Movie Compass installation.`;
+  } catch (error) {
+    profileEditorStatus.textContent = error.message;
+  } finally {
+    exportProfileButton.disabled = false;
+    exportProfileButton.textContent = "Download profile";
   }
 }
 
@@ -851,6 +890,7 @@ saveProfileButton.addEventListener("click", saveProfile);
 rebuildProfileButton.addEventListener("click", rebuildProfile);
 showProfileStatsButton.addEventListener("click", showProfileStats);
 showProfileAccuracyButton.addEventListener("click", showProfileAccuracy);
+exportProfileButton.addEventListener("click", exportProfile);
 findManualMovieButton.addEventListener("click", findManualMovie);
 saveManualRatingButton.addEventListener("click", saveManualRating);
 updateProfileButton.addEventListener("click", updateCurrentProfile);

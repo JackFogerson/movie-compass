@@ -81,3 +81,28 @@ class ContentBaseline:
             if len(matches) >= limit:
                 break
         return tuple(matches)
+
+    def caution_features(self, row: pd.Series, *, limit: int = 3) -> tuple[str, ...]:
+        """Return candidate features associated with this user's lower ratings."""
+        features: sparse.csr_matrix = self.vectorizer.transform([_feature_text(row)])
+        contributions = features.multiply(np.asarray(self.model.coef_).ravel()).tocoo()
+        names = self.vectorizer.get_feature_names_out()
+        ranked = sorted(
+            (
+                (float(value), str(names[int(column)]))
+                for value, column in zip(contributions.data, contributions.col, strict=True)
+                if value < 0
+            )
+        )
+        cautions = []
+        for _, name in ranked:
+            if name.startswith("decade_"):
+                decade = name.removeprefix("decade_")
+                if decade == "unknown":
+                    continue
+                cautions.append(f"release era: {decade}s")
+            else:
+                cautions.append(f"genre: {name}")
+            if len(cautions) >= limit:
+                break
+        return tuple(cautions)

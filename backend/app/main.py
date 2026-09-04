@@ -1,3 +1,4 @@
+import io
 import json
 from dataclasses import asdict
 from datetime import date
@@ -10,7 +11,7 @@ from typing import Annotated
 
 import typer
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -29,6 +30,7 @@ from app.services.group_recommendations import (
 from app.services.letterboxd_import import import_letterboxd_archive
 from app.services.local_catalog_mapping import map_pending_from_artifact
 from app.services.profile_accuracy import profile_accuracy as evaluate_profile_accuracy
+from app.services.profile_export import build_profile_archive, restore_profile_archive
 from app.services.recommendation_reports import (
     RecommendationReportNotFound,
     _latest_artifact,
@@ -274,6 +276,27 @@ def profile_stats(user: str) -> dict:
         "rating_distribution": distribution,
         "last_imported_at": last_import.isoformat() if last_import else None,
     }
+
+
+@app.get("/profiles/{user}/export")
+def export_profile(user: str) -> StreamingResponse:
+    """Download a rating-only profile backup accepted by the existing import flow."""
+    from app.services.recommendation_reports import VALID_USER
+
+    if not VALID_USER.fullmatch(user):
+        raise HTTPException(status_code=422, detail="Invalid profile ID")
+    try:
+        with SessionLocal() as session:
+            content, filename, _ = build_profile_archive(session, user)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/profiles/{user}/accuracy")
@@ -640,6 +663,8 @@ async def import_profile(
                 imported = import_letterboxd_archive(session, target, user)
                 totals = {"processed": 0, "matched": 0, "ambiguous": 0, "unresolved": 0}
                 mapping_warning = None
+                portable_mapping_restored = restore_profile_archive(session, target, user)
+                totals["matched"] += portable_mapping_restored
                 local = map_pending_from_artifact(
                     session,
                     imported.user_id,
@@ -689,6 +714,7 @@ async def import_profile(
         "import": asdict(imported),
         "mapping": totals,
         "local_mapping": asdict(local),
+        "portable_mapping_restored": portable_mapping_restored,
         "latest_review_only": True,
         "rewatch_count_retained": True,
         "archive_retained": False,

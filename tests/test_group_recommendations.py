@@ -47,6 +47,26 @@ def test_group_ranking_shows_every_person_and_protects_low_score(
     assert "bob is predicted at 4.20" in report["most_divisive"][1]["group_reason"]
 
 
+def test_group_bottom_five_uses_cautious_explanation(monkeypatch) -> None:
+    def fake_generate(_artifact, *, user, candidate_tmdb_ids=None, **_kwargs):
+        movies = [
+            _movie(10, 4.2 if user == "alice" else 4.0, user),
+            _movie(20, 2.0 if user == "alice" else 2.2, user),
+        ]
+        for movie in movies:
+            movie["why_you_may_not_like_it"] = ["Its strongest traits match lower ratings."]
+        return {"recommendations": movies, "lowest_recommendations": movies}
+
+    monkeypatch.setattr(service, "generate_recommendations", fake_generate)
+    report = service.generate_group_recommendations(
+        Path("bottom-artifact"), ["alice", "bob"], limit=1, bottom_limit=1
+    )
+
+    lowest = report["lowest_recommendations"][0]
+    assert "falls near the bottom" in lowest["group_reason"]
+    assert len(lowest["why_you_may_not_like_it"]) == 2
+
+
 def test_group_title_search_scores_each_profile_once(monkeypatch) -> None:
     calls: list[tuple[str, str | None]] = []
 

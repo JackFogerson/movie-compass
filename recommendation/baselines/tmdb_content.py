@@ -110,3 +110,35 @@ class TmdbContentModel:
             if len(explanations) >= limit:
                 break
         return tuple(explanations)
+
+    def caution_features(self, details: dict, *, limit: int = 5) -> tuple[str, ...]:
+        """Return intelligible metadata associated with this user's lower ratings."""
+        features = self.vectorizer.transform([metadata_text(details)])
+        contributions = features.multiply(np.asarray(self.model.coef_).ravel()).tocoo()
+        names = self.vectorizer.get_feature_names_out()
+        ranked = sorted(
+            (
+                (float(value), str(names[int(column)]))
+                for value, column in zip(contributions.data, contributions.col, strict=True)
+                if value < 0
+            )
+        )
+        explanations: list[str] = []
+        seen: set[str] = set()
+        for _, feature in ranked:
+            if " " in feature or "_" not in feature:
+                continue
+            prefix, value = feature.split("_", 1)
+            if prefix not in FEATURE_LABELS:
+                continue
+            readable = value.replace("_", " ")
+            if prefix == "decade" and readable.isdigit():
+                readable = f"{readable}s"
+            label = f"{FEATURE_LABELS[prefix]}: {readable}"
+            if label in seen:
+                continue
+            seen.add(label)
+            explanations.append(label)
+            if len(explanations) >= limit:
+                break
+        return tuple(explanations)

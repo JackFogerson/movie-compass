@@ -1,0 +1,24 @@
+{
+  "version": "9ded58306c28",
+  "created_at": "2026-08-31T09:11:47.527750+00:00",
+  "dataset_name": "MovieLens 32M",
+  "ratings": 32000204,
+  "users": 200948,
+  "movies": 87585,
+  "matrix_shape": [
+    200948,
+    87585
+  ],
+  "matrix_nnz": 32000204,
+  "source_sha256": {
+    "movies.csv": "b37ca1abc7798de741138ed252b62f69f7e37c84b8a8fab1b82d409b4c6c5cc2",
+    "links.csv": "ef17da7710be76f7d510d5768d1b61826e3af4bf57812b9ca377e4c912123b22",
+    "ratings.csv": "91159850e41ee59c86231165a688709647e2726cab2e7ba9faf04001bd5261ee"
+  },
+  "files": {
+    "ratings": "ratings_csr.npz",
+    "user_ids": "user_ids.npy",
+    "movie_ids": "movie_ids.npy",
+    "catalog": "catalog.csv.gz"
+  }
+}

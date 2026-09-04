@@ -1,8 +1,12 @@
+import io
+import json
+import zipfile
 from importlib import import_module
 from pathlib import Path
 
-from app.db.models import ImportMapping, ImportRun, Movie, User
+from app.db.models import ImportMapping, ImportRun, Movie, User, UserMovieInteraction
 from app.main import app, settings
+from app.services.profile_export import build_profile_archive, restore_profile_archive
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
@@ -20,7 +24,13 @@ def _session_factory():
     def enable_foreign_keys(connection, _record) -> None:
         connection.execute("PRAGMA foreign_keys=ON")
 
-    for table in (User.__table__, Movie.__table__, ImportRun.__table__, ImportMapping.__table__):
+    for table in (
+        User.__table__,
+        Movie.__table__,
+        ImportRun.__table__,
+        ImportMapping.__table__,
+        UserMovieInteraction.__table__,
+    ):
         table.create(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -100,3 +110,121 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
     with session_factory() as session:
         assert session.scalar(select(func.count()).select_from(User)) == 1
         assert session.scalar(select(func.count()).select_from(ImportMapping)) == 0
+
+
+def test_profile_export_is_rating_only_and_reimportable(monkeypatch) -> None:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        owner = User(slug="traveler", display_name="Traveling Viewer")
+        session.add(owner)
+        session.flush()
+        session.add_all(
+            [
+                ImportMapping(
+                    user_id=owner.id,
+                    source="letterboxd",
+                    source_key="https://letterboxd.com/film/alien/",
+                    title="Alien",
+                    year=1979,
+                    status="matched_local",
+                    rating=4.5,
+                    review_text="Claustrophobic and beautifully designed.",
+                    watched=True,
+                    rewatch_count=2,
+                    watchlisted=False,
+                ),
+                ImportMapping(
+                    user_id=owner.id,
+                    source="letterboxd",
+                    source_key="watchlist-only",
+                    title="Unrated",
+                    year=2024,
+                    status="pending",
+                    rating=None,
+                    watched=False,
+                    rewatch_count=0,
+                    watchlisted=True,
+                ),
+            ]
+        )
+        session.commit()
+
+    main_module = import_module("app.main")
+    monkeypatch.setattr(main_module, "SessionLocal", session_factory)
+    response = TestClient(app).get("/profiles/traveler/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(response.content)) as bundle:
+        manifest = json.loads(bundle.read("movie-compass-profile.json"))
+        assert manifest["display_name"] == "Traveling Viewer"
+        assert manifest["rated_films"] == 1
+        assert bundle.read("ratings.csv").decode("utf-8-sig").count("Alien") == 1
+        assert b"Unrated" not in bundle.read("ratings.csv")
+        assert bundle.read("diary.csv").decode("utf-8-sig").count("Alien") == 2
+
+    archive = io.BytesIO(response.content)
+    with zipfile.ZipFile(archive) as bundle:
+        assert {"ratings.csv", "watched.csv", "reviews.csv", "diary.csv"}.issubset(
+            bundle.namelist()
+        )
+
+
+def test_movie_compass_backup_restores_exact_tmdb_mapping_and_name(tmp_path: Path) -> None:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        source = User(slug="source", display_name="Careful Critic")
+        session.add(source)
+        session.flush()
+        movie = Movie(tmdb_id=348, title="Alien", original_title="Alien", year=1979)
+        session.add(movie)
+        session.flush()
+        session.add(
+            ImportMapping(
+                user_id=source.id,
+                source="letterboxd",
+                source_key="alien:1979",
+                movie_id=movie.id,
+                title="Alien",
+                year=1979,
+                status="matched_local",
+                rating=4.5,
+                watched=True,
+                rewatch_count=0,
+                watchlisted=False,
+            )
+        )
+        session.commit()
+        content, _, _ = build_profile_archive(session, "source")
+
+    archive = tmp_path / "profile.zip"
+    archive.write_bytes(content)
+    with session_factory() as session:
+        destination = User(slug="destination", display_name="Destination")
+        session.add(destination)
+        session.flush()
+        session.add(
+            ImportMapping(
+                user_id=destination.id,
+                source="letterboxd",
+                source_key="alien:1979",
+                title="Alien",
+                year=1979,
+                status="pending",
+                rating=4.5,
+                watched=True,
+                rewatch_count=0,
+                watchlisted=False,
+            )
+        )
+        session.commit()
+        restored = restore_profile_archive(session, archive, "destination")
+        mapping = session.scalar(
+            select(ImportMapping).where(ImportMapping.user_id == destination.id)
+        )
+        session.refresh(destination)
+
+    assert restored == 1
+    assert mapping.status == "matched_manual"
+    assert mapping.movie_id is not None
+    assert destination.display_name == "Careful Critic"

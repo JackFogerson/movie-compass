@@ -1,0 +1,10 @@
+{
+  "model": "truncated_svd_explicit_residual",
+  "trained_at": "2026-08-31T09:12:16.640549+00:00",
+  "source_artifact_version": "9ded58306c28",
+  "requested_factors": 64,
+  "effective_factors": 64,
+  "random_state": 42,
+  "explained_variance": 0.19921430945396423,
+  "artifact": "latent_factor.joblib"
+}

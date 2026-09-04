@@ -279,11 +279,16 @@ def main(
     cold_start_weights = model_weight_policy["cold_start_weights"]
     rich_content_scores: dict[int, float] = {}
     metadata_matches: dict[int, tuple[str, ...]] = {}
+    metadata_cautions: dict[int, tuple[str, ...]] = {}
     if len(personal_details) >= 10:
         rich_content = TmdbContentModel.fit(personal_details, tmdb_personal)
         rich_content_scores = rich_content.predict(rich_candidate_details)
         metadata_matches = {
             tmdb_id: rich_content.explanation_features(details)
+            for tmdb_id, details in rich_candidate_details.items()
+        }
+        metadata_cautions = {
+            tmdb_id: rich_content.caution_features(details)
             for tmdb_id, details in rich_candidate_details.items()
         }
     review_affinities: dict[int, float] = {}
@@ -375,6 +380,7 @@ def main(
         review_affinities=review_affinities,
         review_terms=review_terms,
         metadata_matches=metadata_matches,
+        metadata_cautions=metadata_cautions,
         movielens_rating_counts=movielens_rating_counts,
         limit=limit,
         max_per_primary_genre=max_per_primary_genre,
@@ -407,6 +413,7 @@ def main(
             review_affinities=review_affinities,
             review_terms=review_terms,
             metadata_matches=metadata_matches,
+            metadata_cautions=metadata_cautions,
             movielens_rating_counts=movielens_rating_counts,
             limit=bottom_limit,
             max_per_primary_genre=bottom_limit,

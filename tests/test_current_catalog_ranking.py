@@ -72,6 +72,42 @@ def test_current_ranking_includes_and_labels_tmdb_only_movies() -> None:
     assert "horror films" in serialized["ranking_expectation"]["reason"]
     assert serialized["ranking_expectation"]["calculation"].startswith("80%")
     assert len(serialized["why_you_may_like_it"]) == 2
+    assert serialized["why_you_may_not_like_it"]
+
+
+def test_bottom_result_explains_negative_fit() -> None:
+    catalog = pd.DataFrame(
+        {"movieId": [1, 2, 3], "genres": ["Drama", "Horror", "Comedy"], "year": [1980, 1990, 2000]}
+    )
+    personal = {1: 5.0, 2: 1.0}
+    content = ContentBaseline.fit(catalog, personal)
+    matrix = sparse.csr_matrix(np.array([[5.0, 1.0, 3.0], [4.0, 2.0, 3.0]]))
+    movie_ids = np.array([1, 2, 3])
+    popularity = PopularityBaseline.fit(matrix, movie_ids)
+    collaborative = LatentFactorModel.fit(matrix, movie_ids, factors=1)
+    ranked = rank_current_candidates(
+        [
+            {
+                "id": 20,
+                "title": "Risky Horror",
+                "release_date": "1990-01-01",
+                "genre_ids": [27],
+                "vote_average": 5.0,
+                "vote_count": 100,
+            }
+        ],
+        excluded_tmdb_ids=set(),
+        movielens_by_tmdb={20: 2},
+        content=content,
+        collaborative=collaborative,
+        personal_factors=collaborative.fit_personal(personal),
+        popularity=popularity,
+        user_mean=3.0,
+        descending=False,
+    )[0].to_dict()
+
+    assert ranked["why_you_may_not_like_it"]
+    assert "lower ratings" in ranked["why_you_may_not_like_it"][0]
 
 
 def test_catalog_preselection_honors_year_and_exclusions() -> None:

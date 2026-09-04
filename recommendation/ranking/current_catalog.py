@@ -114,6 +114,7 @@ class RankedMovie:
     interval_samples: int = 0
     interval_method: str | None = None
     metadata_matches: tuple[str, ...] = ()
+    caution_matches: tuple[str, ...] = ()
     explanation: tuple[str, ...] = ()
     model_weights: dict[str, float] | None = None
 
@@ -156,6 +157,23 @@ class RankedMovie:
             "method": self.interval_method,
         }
         result["why_you_may_like_it"] = list(self.explanation[1:])
+        cautions: list[str] = []
+        if self.caution_matches:
+            cautions.append(
+                "Your lower ratings are most associated with "
+                f"{humanize_metadata_matches(self.caution_matches)}."
+            )
+        if self.relative_to_profile == "below_typical":
+            cautions.append(
+                "Taken together, the learned signals place this below your usual rating, "
+                "even if a few elements still match your taste."
+            )
+        elif not cautions:
+            cautions.append(
+                "No strong personal warning stands out; the main uncertainty is whether the "
+                "movie's execution will live up to the traits that match your taste."
+            )
+        result["why_you_may_not_like_it"] = cautions
         result["ranking_expectation"] = {
             "expected_rating": self.score,
             "evidence_level": evidence_level,
@@ -222,6 +240,7 @@ def rank_current_candidates(
     review_affinities: dict[int, float] | None = None,
     review_terms: dict[int, tuple[str, ...]] | None = None,
     metadata_matches: dict[int, tuple[str, ...]] | None = None,
+    metadata_cautions: dict[int, tuple[str, ...]] | None = None,
     movielens_rating_counts: dict[int, int] | None = None,
     popularity_tier: str = "all",
     limit: int = 20,
@@ -310,6 +329,9 @@ def rank_current_candidates(
         personal_matches = (metadata_matches or {}).get(tmdb_id, ())
         if not personal_matches:
             personal_matches = content.explanation_features(row)
+        caution_matches = (metadata_cautions or {}).get(tmdb_id, ())
+        if not caution_matches:
+            caution_matches = content.caution_features(row)
         reasons = [
             (
                 "Supported by MovieLens collaborative and personal content signals."
@@ -383,6 +405,7 @@ def rank_current_candidates(
                 interval_samples=rating_interval.samples if rating_interval else 0,
                 interval_method=rating_interval.method if rating_interval else None,
                 metadata_matches=personal_matches,
+                caution_matches=caution_matches,
                 explanation=tuple(reasons),
                 model_weights=(
                     {

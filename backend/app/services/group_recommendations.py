@@ -154,6 +154,20 @@ def _divergence_reason(individual: list[dict]) -> str:
     )
 
 
+def _lowest_group_reason(individual: list[dict]) -> str:
+    scores = [float(item["expected_rating"]) for item in individual]
+    weakest = min(individual, key=lambda item: item["expected_rating"])
+    strongest = max(individual, key=lambda item: item["expected_rating"])
+    return (
+        f"This falls near the bottom because the group average is only "
+        f"{sum(scores) / len(scores):.2f}/5. "
+        f"{weakest.get('display_name', weakest['user'])} is the most cautious at "
+        f"{weakest['expected_rating']:.2f}/5, and even "
+        f"{strongest.get('display_name', strongest['user'])}'s prediction reaches only "
+        f"{strongest['expected_rating']:.2f}/5."
+    )
+
+
 def _balanced_divisive_rows(rows: list[dict], users: list[str], limit: int) -> list[dict]:
     ranked = sorted(rows, key=lambda item: item["group_spread"], reverse=True)
     by_enthusiast = {user: [] for user in users}
@@ -321,6 +335,7 @@ def generate_group_recommendations(
                     "plausible_minimum": uncertainty["plausible_minimum"],
                     "plausible_maximum": uncertainty["plausible_maximum"],
                     "reason": movie["ranking_expectation"]["reason"],
+                    "cautions": movie.get("why_you_may_not_like_it", []),
                     "evidence_level": movie["ranking_expectation"]["evidence_level"],
                 }
             )
@@ -376,6 +391,12 @@ def generate_group_recommendations(
             continue
         low = dict(row)
         low["rank"] = len(lowest) + 1
+        low["group_reason"] = _lowest_group_reason(low["individual_scores"])
+        low["why_you_may_not_like_it"] = [
+            f"{item.get('display_name', item['user'])}: {item['cautions'][0]}"
+            for item in low["individual_scores"]
+            if item.get("cautions")
+        ]
         lowest.append(low)
         if len(lowest) >= bottom_limit:
             break
