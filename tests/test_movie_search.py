@@ -1,5 +1,8 @@
 from importlib import import_module
 
+import pytest
+from fastapi import HTTPException
+
 
 def test_tmdb_score_search_preserves_relevance_order(monkeypatch) -> None:
     main = import_module("app.main")
@@ -50,3 +53,32 @@ def test_tmdb_score_search_falls_back_to_local_catalog_after_retry_error(monkeyp
     monkeypatch.setattr(main, "TmdbClient", FakeClient)
 
     assert main._tmdb_search_ids("Dunkirk", 2017, 10) == [374720]
+
+
+def test_tmdb_score_search_reports_outage_instead_of_false_no_match(monkeypatch) -> None:
+    main = import_module("app.main")
+    monkeypatch.setattr(main.settings, "tmdb_api_key", "test-key")
+    monkeypatch.setattr(main, "_local_movie_search_ids", lambda *_args: [])
+
+    class FakeClient:
+        def __init__(self, _key):
+            pass
+
+        def search_movie(self, _query, _year):
+            from concurrent.futures import Future
+
+            from tenacity import RetryError
+
+            attempt = Future()
+            attempt.set_exception(OSError("offline"))
+            raise RetryError(attempt)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "TmdbClient", FakeClient)
+
+    with pytest.raises(HTTPException) as error:
+        main._tmdb_search_ids("Leviticus", 2026, 10)
+    assert error.value.status_code == 503
+    assert "temporarily unreachable" in error.value.detail

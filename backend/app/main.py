@@ -148,8 +148,16 @@ def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
         )
         live_ids = [tmdb_id for tmdb_id in ordered_ids if tmdb_id in available]
         return list(dict.fromkeys([*live_ids, *local_ids]))[:limit]
-    except RetryError:
-        return local_ids
+    except RetryError as error:
+        if local_ids:
+            return local_ids
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "TMDB is temporarily unreachable, and this title is not in the bundled "
+                "offline catalog. Please retry the lookup when the connection is available."
+            ),
+        ) from error
     finally:
         client.close()
 
