@@ -18,6 +18,8 @@ def _movie(tmdb_id: int, score: float, user: str) -> dict:
             "reason": f"Readable reason for {user}.",
             "evidence_level": "collaborative_supported",
         },
+        "metadata_matches": ["genre: drama", "story/theme: friendship"],
+        "caution_matches": ["story/theme: bleak ending"],
     }
 
 
@@ -42,6 +44,8 @@ def test_group_ranking_shows_every_person_and_protects_low_score(
     assert report["recommendations"][0]["tmdb_id"] == 20
     assert len(report["recommendations"][0]["individual_scores"]) == 2
     assert "Scores run from" in report["recommendations"][0]["group_reason"]
+    assert "worked well for every profile" in report["recommendations"][0]["group_reason"]
+    assert "story/theme:" not in report["recommendations"][0]["group_reason"]
     assert report["most_divisive"][0]["tmdb_id"] == 10
     assert report["most_divisive"][0]["featured_enthusiast"] == "alice"
     assert report["most_divisive"][0]["featured_enthusiasm_rank"] == 1
@@ -67,7 +71,7 @@ def test_group_bottom_five_uses_cautious_explanation(monkeypatch) -> None:
 
     lowest = report["lowest_recommendations"][0]
     assert "falls near the bottom" in lowest["group_reason"]
-    assert len(lowest["why_you_may_not_like_it"]) == 2
+    assert len(lowest["why_you_may_not_like_it"]) >= 2
 
 
 def test_group_title_search_scores_each_profile_once(monkeypatch) -> None:

@@ -1,3 +1,5 @@
+import csv
+import gzip
 import io
 import json
 from dataclasses import asdict
@@ -39,6 +41,7 @@ from app.services.recommendation_reports import (
 )
 from app.services.review_policy import refresh_review_policy
 from app.services.tmdb_mapping import map_pending_letterboxd, resolve_letterboxd_links
+from ingestion.letterboxd.parser import normalize_title
 from ingestion.tmdb.client import TmdbClient
 from ingestion.tmdb.daily_export import load_catalog_summary
 from ingestion.tmdb.details_cache import load_or_fetch_details
@@ -93,10 +96,47 @@ def _with_display_metadata(report: dict, country: str) -> dict:
     )
 
 
+def _local_movie_search_ids(query: str, year: int | None, limit: int) -> list[int]:
+    """Search the bundled linked catalog when the live TMDB search is unavailable."""
+    try:
+        artifact = _latest_artifact(settings.ml_artifacts_dir)
+        manifest = json.loads((artifact / "manifest.json").read_text(encoding="utf-8"))
+        catalog_path = artifact / manifest["files"]["catalog"]
+    except (RecommendationReportNotFound, FileNotFoundError, KeyError, json.JSONDecodeError):
+        return []
+
+    wanted = normalize_title(query)
+    matches: list[tuple[int, int, int]] = []
+    opener = gzip.open if catalog_path.suffix == ".gz" else open
+    with opener(catalog_path, "rt", encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            raw_tmdb_id = row.get("tmdb_id")
+            if not raw_tmdb_id or not raw_tmdb_id.replace(".0", "", 1).isdigit():
+                continue
+            title = str(row.get("clean_title") or row.get("title") or "")
+            normalized_title = normalize_title(title)
+            if not wanted or wanted not in normalized_title:
+                continue
+            raw_year = str(row.get("year") or "")
+            movie_year = int(float(raw_year)) if raw_year else None
+            if year is not None and movie_year != year:
+                continue
+            if normalized_title == wanted:
+                match_quality = 0
+            elif normalized_title.startswith(wanted):
+                match_quality = 1
+            else:
+                match_quality = 2
+            matches.append((match_quality, -(movie_year or 0), int(float(raw_tmdb_id))))
+    matches.sort()
+    return [tmdb_id for _, _, tmdb_id in matches[:limit]]
+
+
 def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
-    """Search TMDB, cache rich details, and preserve TMDB relevance order."""
+    """Search TMDB, falling back to the bundled catalog after network retry failures."""
+    local_ids = _local_movie_search_ids(query, year, limit)
     if not settings.tmdb_api_key:
-        raise HTTPException(status_code=503, detail="TMDB_API_KEY is not configured")
+        return local_ids
     client = TmdbClient(settings.tmdb_api_key)
     try:
         results = client.search_movie(query, year)[:limit]
@@ -106,9 +146,12 @@ def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
             set(ordered_ids),
             settings.processed_data_dir / "tmdb-rich-details.json",
         )
+        live_ids = [tmdb_id for tmdb_id in ordered_ids if tmdb_id in available]
+        return list(dict.fromkeys([*live_ids, *local_ids]))[:limit]
+    except RetryError:
+        return local_ids
     finally:
         client.close()
-    return [tmdb_id for tmdb_id in ordered_ids if tmdb_id in available]
 
 
 @app.middleware("http")

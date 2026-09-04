@@ -72,6 +72,13 @@ def humanize_metadata_matches(matches: tuple[str, ...]) -> str:
     return _join_naturally(readable)
 
 
+def describe_positive_matches(matches: tuple[str, ...]) -> str:
+    """Describe positive taste evidence as a natural sentence instead of model labels."""
+    if not matches:
+        return "Its overall style resembles movies that have worked well for you."
+    return f"{humanize_metadata_matches(matches).capitalize()} have been reliable matches for you."
+
+
 def humanize_caution_matches(matches: tuple[str, ...]) -> str:
     """Turn negative model features into direct, natural-language cautions."""
     readable: list[str] = []
@@ -179,12 +186,12 @@ class RankedMovie:
             )
             if self.metadata_matches:
                 personal = (
-                    f"You sometimes enjoy {humanize_metadata_matches(self.metadata_matches)}, "
-                    "but the overall evidence suggests this may be a tougher match. "
+                    f"{describe_positive_matches(self.metadata_matches)} Even so, "
+                    "the overall evidence suggests this may be a tougher match. "
                 )
         else:
             personal = (
-                f"This fits your fondness for {humanize_metadata_matches(self.metadata_matches)}. "
+                f"{describe_positive_matches(self.metadata_matches)} "
                 if self.metadata_matches
                 else "Its overall profile resembles movies you rated highly. "
             )
@@ -198,7 +205,13 @@ class RankedMovie:
             "heldout_samples": self.interval_samples,
             "method": self.interval_method,
         }
-        result["why_you_may_like_it"] = list(self.explanation[1:])
+        positive_summary = describe_positive_matches(self.metadata_matches)
+        result["why_you_may_like_it"] = [positive_summary]
+        result["why_you_may_like_it"].extend(
+            reason
+            for reason in self.explanation[1:]
+            if not reason.startswith("Specific positive matches") and reason != positive_summary
+        )
         cautions: list[str] = []
         if self.caution_matches:
             cautions.append(
@@ -392,8 +405,7 @@ def rank_current_candidates(
                 reasons.append("For this profile, review themes also improved held-out accuracy.")
         if personal_matches:
             reasons.append(
-                "Specific positive matches from your rating history: "
-                f"{', '.join(personal_matches)}."
+                describe_positive_matches(tuple(personal_matches))
             )
         selected.append(
             RankedMovie(

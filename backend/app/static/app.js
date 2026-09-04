@@ -199,7 +199,7 @@ function renderMovie(movie, rankLabel = null) {
     groupScores.remove();
   }
   const explanationList = card.querySelector(".explanations");
-  const extraExplanations = movie.explanation.slice(1);
+  const extraExplanations = movie.why_you_may_like_it || movie.explanation?.slice(1) || [];
   if (extraExplanations.length) {
     explanationList.innerHTML = extraExplanations
       .map((value) => `<li>${escapeHtml(value)}</li>`)

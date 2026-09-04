@@ -13,6 +13,7 @@ from app.cli.recommend import warm_recommender_cache
 from app.db.models import Movie, User, UserMovieInteraction
 from app.db.session import SessionLocal
 from app.services.recommendation_reports import VALID_USER
+from recommendation.ranking.current_catalog import humanize_metadata_matches
 
 
 @lru_cache(maxsize=64)
@@ -94,21 +95,94 @@ def clear_group_recommendation_cache() -> None:
     _cached_candidate_scores.cache_clear()
 
 
+def _shared_matches(individual: list[dict], field: str) -> tuple[str, ...]:
+    if not individual:
+        return ()
+    common = set(individual[0].get(field, ()))
+    for item in individual[1:]:
+        common.intersection_update(item.get(field, ()))
+    return tuple(value for value in individual[0].get(field, ()) if value in common)
+
+
+def _group_like_explanations(individual: list[dict]) -> list[str]:
+    shared = _shared_matches(individual, "positive_matches")
+    if shared:
+        return [
+            f"Everyone's ratings point to the same strengths here: "
+            f"{humanize_metadata_matches(shared)} have worked well for every profile."
+        ]
+
+    personal_hooks = []
+    for item in individual:
+        matches = tuple(item.get("positive_matches", ()))[:2]
+        if matches:
+            name = item.get("display_name", item["user"])
+            personal_hooks.append(f"{name} tends to enjoy {humanize_metadata_matches(matches)}")
+    if personal_hooks:
+        return [
+            "There is no single recorded theme shared by every profile, but the movie has "
+            f"different hooks for the group: {'; '.join(personal_hooks)}."
+        ]
+    return [
+        "The model does not have one specific genre or theme shared by every profile; its "
+        "appeal comes from the overall pattern of each person's past ratings."
+    ]
+
+
+def _caution_clause(match: str) -> str:
+    kind, _, value = match.partition(": ")
+    value = value.strip()
+    if kind == "genre":
+        return f"{value.casefold()} films have often received lower ratings"
+    if kind == "story/theme":
+        return f"stories centered on {value} have been less reliable"
+    if kind == "director":
+        return f"{value.title()}'s films have been a mixed fit"
+    if kind == "cast member":
+        return f"films featuring {value.title()} have been less consistent"
+    if kind == "release era":
+        return f"movies from the {value} have usually scored lower"
+    if kind == "original language":
+        return f"{value.upper()}-language films have been less predictable"
+    return f"{value or match} has been a weaker signal"
+
+
+def _group_caution_explanations(individual: list[dict]) -> list[str]:
+    shared = _shared_matches(individual, "caution_matches")
+    explanations: list[str] = []
+    if shared:
+        explanations.append(
+            f"The clearest shared concern is {humanize_metadata_matches(shared)}: those "
+            "elements have tended to receive lower ratings from everyone in the group."
+        )
+    for item in individual:
+        matches = tuple(item.get("caution_matches", ()))[:2]
+        name = item.get("display_name", item["user"])
+        if matches:
+            explanations.append(
+                f"For {name}, "
+                + " and ".join(_caution_clause(match) for match in matches)
+                + "."
+            )
+        elif item.get("cautions"):
+            caution = str(item["cautions"][0]).removeprefix("One possible concern: ")
+            caution = caution.replace("you have", f"{name} has").replace(
+                "for you", f"for {name}"
+            )
+            explanations.append(f"For {name}, {caution}")
+    if not explanations:
+        explanations.append(
+            "No strong shared warning appears in the group's rating histories. The remaining "
+            "risk is that the movie's execution may not deliver on the traits the model expects."
+        )
+    return explanations
+
+
 def _group_reason(individual: list[dict]) -> str:
     scores = [float(item["expected_rating"]) for item in individual]
     minimum = min(scores)
     maximum = max(scores)
-    spread = maximum - minimum
-    if minimum >= 4.0:
-        opening = "This is a rare across-the-board match: everyone is predicted to rate it highly."
-    elif spread <= 0.4:
-        opening = (
-            "Everyone's prediction lands in a tight range, making this a balanced group choice."
-        )
-    elif minimum >= 3.25:
-        opening = "It has a strong group average without leaving anyone with a weak prediction."
-    else:
-        opening = "The overall fit is promising, though one person's prediction is more cautious."
+    opening = _group_like_explanations(individual)[0]
     strongest = max(individual, key=lambda item: item["expected_rating"])
     return (
         f"{opening} Scores run from {minimum:.2f} to {maximum:.2f}; "
@@ -195,8 +269,10 @@ def _lowest_group_reason(individual: list[dict]) -> str:
     scores = [float(item["expected_rating"]) for item in individual]
     weakest = min(individual, key=lambda item: item["expected_rating"])
     strongest = max(individual, key=lambda item: item["expected_rating"])
+    appeal = _group_like_explanations(individual)[0]
     return (
-        f"This falls near the bottom because the group average is only "
+        f"{appeal} Even with that potential appeal, this falls near the bottom because "
+        "the group average is only "
         f"{sum(scores) / len(scores):.2f}/5. "
         f"{weakest.get('display_name', weakest['user'])} is the most cautious at "
         f"{weakest['expected_rating']:.2f}/5, and even "
@@ -389,6 +465,8 @@ def generate_group_recommendations(
                     "plausible_maximum": uncertainty["plausible_maximum"],
                     "reason": movie["ranking_expectation"]["reason"],
                     "cautions": movie.get("why_you_may_not_like_it", []),
+                    "positive_matches": movie.get("metadata_matches", []),
+                    "caution_matches": movie.get("caution_matches", []),
                     "evidence_level": movie["ranking_expectation"]["evidence_level"],
                 }
             )
@@ -422,6 +500,8 @@ def generate_group_recommendations(
                 "watched_by": watched_by,
                 "individual_scores": individual,
                 "group_reason": reason,
+                "why_you_may_like_it": _group_like_explanations(individual),
+                "why_you_may_not_like_it": _group_caution_explanations(individual),
             }
         )
         rows.append(base)
@@ -445,11 +525,10 @@ def generate_group_recommendations(
         low = dict(row)
         low["rank"] = len(lowest) + 1
         low["group_reason"] = _lowest_group_reason(low["individual_scores"])
-        low["why_you_may_not_like_it"] = [
-            f"{item.get('display_name', item['user'])}: {item['cautions'][0]}"
-            for item in low["individual_scores"]
-            if item.get("cautions")
-        ]
+        low["why_you_may_like_it"] = _group_like_explanations(low["individual_scores"])
+        low["why_you_may_not_like_it"] = _group_caution_explanations(
+            low["individual_scores"]
+        )
         lowest.append(low)
         if len(lowest) >= bottom_limit:
             break
