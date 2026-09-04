@@ -44,9 +44,10 @@ def test_group_ranking_shows_every_person_and_protects_low_score(
     assert "Scores run from" in report["recommendations"][0]["group_reason"]
     assert report["most_divisive"][0]["tmdb_id"] == 10
     assert report["most_divisive"][0]["featured_enthusiast"] == "alice"
-    assert "taste-split" in report["most_divisive"][0]["group_reason"]
+    assert report["most_divisive"][0]["featured_enthusiasm_rank"] == 1
+    assert "biggest enthusiast split" in report["most_divisive"][0]["group_reason"]
     assert report["most_divisive"][1]["featured_enthusiast"] == "bob"
-    assert "bob is predicted at 4.20" in report["most_divisive"][1]["group_reason"]
+    assert "bob's biggest enthusiast split" in report["most_divisive"][1]["group_reason"]
 
 
 def test_group_bottom_five_uses_cautious_explanation(monkeypatch) -> None:
@@ -160,6 +161,35 @@ def test_split_section_returns_one_enthusiast_movie_per_person(monkeypatch) -> N
 
     assert [movie["featured_enthusiast"] for movie in report["most_divisive"]] == users
     assert [movie["tmdb_id"] for movie in report["most_divisive"]] == [10, 20, 30]
+
+
+def test_split_section_falls_back_to_second_place_instead_of_dropping_person(
+    monkeypatch,
+) -> None:
+    users = ["alice", "bob", "carol"]
+    scores = {
+        "alice": {10: 4.8, 20: 4.6, 30: 4.2},
+        "bob": {10: 4.0, 20: 3.0, 30: 3.8},
+        "carol": {10: 3.5, 20: 3.9, 30: 3.2},
+    }
+
+    def fake_generate(_artifact, *, user, **_kwargs):
+        return {
+            "recommendations": [
+                _movie(tmdb_id, scores[user][tmdb_id], user) for tmdb_id in (10, 20, 30)
+            ]
+        }
+
+    monkeypatch.setattr(service, "generate_recommendations", fake_generate)
+    report = service.generate_group_recommendations(
+        Path("fallback-artifact"), users, limit=3
+    )
+    by_user = {movie["featured_enthusiast"]: movie for movie in report["most_divisive"]}
+
+    assert set(by_user) == set(users)
+    assert by_user["bob"]["featured_enthusiasm_rank"] == 2
+    assert by_user["bob"]["tmdb_id"] == 30
+    assert "best 2nd-most-enthusiastic split" in by_user["bob"]["group_reason"]
 
 
 def test_group_rewatch_penalty_scales_with_watched_fraction(monkeypatch) -> None:

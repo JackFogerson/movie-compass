@@ -783,7 +783,12 @@ async function buildGroupRecommendations() {
     });
     groupLowestHeading.hidden = !(result.lowest_recommendations || []).length;
     (result.most_divisive || []).forEach((movie, index) => {
-      groupDivisiveResults.append(renderMovie(movie, `${movie.featured_enthusiast_display_name || `PERSON ${index + 1}`} PICK`));
+      const personSection = document.createElement("section");
+      personSection.className = "person-split";
+      const personName = movie.featured_enthusiast_display_name || `Person ${index + 1}`;
+      personSection.innerHTML = `<div class="person-split-heading"><strong>${escapeHtml(personName)}'s split</strong><span>${escapeHtml(movie.featured_enthusiasm_label || "best available contrast")}</span></div>`;
+      personSection.append(renderMovie(movie, "SPLIT"));
+      groupDivisiveResults.append(personSection);
     });
     groupDivisiveHeading.hidden = !(result.most_divisive || []).length;
   } catch (error) {

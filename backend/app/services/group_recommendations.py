@@ -154,6 +154,43 @@ def _divergence_reason(individual: list[dict]) -> str:
     )
 
 
+def _ordinal(value: int) -> str:
+    if 10 <= value % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
+
+
+def _featured_divergence_reason(individual: list[dict], user: str, rank: int) -> str:
+    featured = next(item for item in individual if item["user"] == user)
+    weakest = min(individual, key=lambda item: item["expected_rating"])
+    featured_name = featured.get("display_name", featured["user"])
+    weakest_name = weakest.get("display_name", weakest["user"])
+    gap = float(featured["expected_rating"]) - float(weakest["expected_rating"])
+    if rank == 1:
+        return (
+            f"This is {featured_name}'s biggest enthusiast split. They are predicted at "
+            f"{featured['expected_rating']:.2f}/5 while {weakest_name} is at "
+            f"{weakest['expected_rating']:.2f}/5, a {gap:.2f}-point gap."
+        )
+    if gap > 0:
+        return (
+            f"No available movie puts {featured_name} first, so this is their best "
+            f"{_ordinal(rank)}-most-enthusiastic split. They are predicted at "
+            f"{featured['expected_rating']:.2f}/5 versus {weakest_name} at "
+            f"{weakest['expected_rating']:.2f}/5, a {gap:.2f}-point gap."
+        )
+    strongest = max(individual, key=lambda item: item["expected_rating"])
+    strongest_name = strongest.get("display_name", strongest["user"])
+    return (
+        f"No available movie places {featured_name} above another group member. This is "
+        f"their closest fallback: {featured_name} is predicted at "
+        f"{featured['expected_rating']:.2f}/5 while {strongest_name} is at "
+        f"{strongest['expected_rating']:.2f}/5."
+    )
+
+
 def _lowest_group_reason(individual: list[dict]) -> str:
     scores = [float(item["expected_rating"]) for item in individual]
     weakest = min(individual, key=lambda item: item["expected_rating"])
@@ -169,28 +206,33 @@ def _lowest_group_reason(individual: list[dict]) -> str:
 
 
 def _per_person_divisive_rows(rows: list[dict], users: list[str]) -> list[dict]:
-    """Choose each person's widest split where that person is uniquely most enthusiastic."""
+    """Choose one split per person, falling back through enthusiasm ranks."""
     selected: list[dict] = []
     for user in users:
-        candidates = []
+        candidates: list[tuple[int, float, dict]] = []
         for row in rows:
             scores = {
                 item["user"]: float(item["expected_rating"])
                 for item in row["individual_scores"]
             }
             other_scores = [score for candidate, score in scores.items() if candidate != user]
-            if not other_scores or scores[user] <= max(other_scores):
+            if not other_scores:
                 continue
-            candidates.append(row)
+            rank = 1 + sum(score > scores[user] for score in other_scores)
+            gap_above_lowest = scores[user] - min(scores.values())
+            candidates.append((rank, gap_above_lowest, row))
         if not candidates:
             continue
-        winner = max(
-            candidates,
+        best_rank = min(item[0] for item in candidates)
+        best_ranked = [item for item in candidates if item[0] == best_rank]
+        _, _, winner = max(
+            best_ranked,
             key=lambda item: (
-                item["group_spread"],
+                item[1],
+                item[2]["group_spread"],
                 next(
                     score["expected_rating"]
-                    for score in item["individual_scores"]
+                    for score in item[2]["individual_scores"]
                     if score["user"] == user
                 ),
             ),
@@ -201,6 +243,12 @@ def _per_person_divisive_rows(rows: list[dict], users: list[str]) -> list[dict]:
             item.get("display_name", user)
             for item in featured["individual_scores"]
             if item["user"] == user
+        )
+        featured["featured_enthusiasm_rank"] = best_rank
+        featured["featured_enthusiasm_label"] = (
+            "most enthusiastic"
+            if best_rank == 1
+            else f"{_ordinal(best_rank)} most enthusiastic"
         )
         selected.append(featured)
     return selected
@@ -409,7 +457,11 @@ def generate_group_recommendations(
     for row in _per_person_divisive_rows(rows, normalized):
         divisive = dict(row)
         divisive["rank"] = len(most_divisive) + 1
-        divisive["group_reason"] = _divergence_reason(divisive["individual_scores"])
+        divisive["group_reason"] = _featured_divergence_reason(
+            divisive["individual_scores"],
+            divisive["featured_enthusiast"],
+            divisive["featured_enthusiasm_rank"],
+        )
         most_divisive.append(divisive)
     return {
         "generated_at": datetime.now(UTC).isoformat(),
