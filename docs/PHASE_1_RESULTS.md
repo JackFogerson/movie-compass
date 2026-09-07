@@ -4,7 +4,7 @@ Status: real personal data imported, identity mapping substantially complete, Mo
 
 ## Personal import snapshot — 2026-08-31
 
-- Letterboxd account: `jackalthegreat`
+- Profile: anonymized local evaluation profile
 - Unique rated/watched films: 143
 - Watchlist entries: 30
 - Liked films: 53
@@ -17,7 +17,6 @@ Status: real personal data imported, identity mapping substantially complete, Mo
 - Ratings of 2.0 or lower: 13
 - Release-year range: 1957–2026
 - Median release year in this history: 2023
-- Import archive SHA-256: `5d2de0a74897d743fea5b3c65d4b80e8f839f9aa78a92446b5b2bbb6280a51cd`
 
 The history is large enough to attempt held-out rating evaluation, although repeated splits will be needed because 143 ratings still produce relatively small test sets. Review-text modeling is available: the export contains 26,409 review characters across 147 review records. Four films have two reviews; only each film's most recent review is used as its active taste signal.
 
