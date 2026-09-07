@@ -9,4 +9,5 @@ if (-not (Test-Path -LiteralPath ".venv\Scripts\python.exe")) {
     throw "The virtual environment is missing. Run .\setup.ps1 again."
 }
 
+& ".venv\Scripts\python.exe" scripts/init_local_db.py
 & ".venv\Scripts\python.exe" -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8765

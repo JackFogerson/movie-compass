@@ -6,6 +6,12 @@ $ErrorActionPreference = "Stop"
 $projectRoot = $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
 
+if (-not $TmdbApiKey -and (Test-Path -LiteralPath ".env")) {
+    $savedKeyLine = Get-Content -LiteralPath ".env" | Where-Object { $_ -like "TMDB_API_KEY=*" } | Select-Object -First 1
+    if ($savedKeyLine) {
+        $TmdbApiKey = $savedKeyLine.Substring("TMDB_API_KEY=".Length).Trim()
+    }
+}
 if (-not $TmdbApiKey) {
     $secureKey = Read-Host "Paste your TMDB API key (stored only in this laptop's ignored .env file)" -AsSecureString
     $keyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
