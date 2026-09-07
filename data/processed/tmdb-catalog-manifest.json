@@ -1,0 +1,12 @@
+{
+  "export_date": "2026-08-31",
+  "source_url": "https://files.tmdb.org/p/exports/movie_ids_08_31_2026.json.gz",
+  "source_sha256": "d1efcbfa79573e94b8f2f28fcedaf8a83896f513acad61429a27d24eac410a96",
+  "records": 1238234,
+  "eligible_movies": 1176123,
+  "adult_movies_excluded": 0,
+  "video_records_excluded": 62111,
+  "popularity_positive": 1238092,
+  "maximum_tmdb_id": 1759235,
+  "generated_at": "2026-09-01T06:23:15.573877+00:00"
+}

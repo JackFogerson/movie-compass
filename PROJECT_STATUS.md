@@ -2,7 +2,7 @@
 
 ## Current stage
 
-The project is in the later-middle portion of Phase 1: Recommendation Engine Proof of Concept. Updated `jackalthegreat` and new `frostyfog` Letterboxd exports are imported locally. Jack has 145 rated films with 144 mapped; Frosty has 40 watched films, 34 ratings, and 39 mapped. Their sole remaining title is absent from TMDB and is preserved locally. Local-first identity matching lets imports use the existing MovieLens/TMDB cache before any remote lookup. The 2026-08-31 TMDB daily export is indexed locally: 1,176,123 eligible movie IDs after video exclusion, with 87,620 titles currently rankable and 500 candidate records carrying rich TMDB details.
+The project is in the later-middle portion of Phase 1: Recommendation Engine Proof of Concept. The GitHub base app contains no profiles or personal database. Local-first identity matching lets a fresh installation use bundled MovieLens/TMDB metadata before remote lookup, while live TMDB enrichment supplies current titles, posters, and streaming availability. The 2026-08-31 TMDB daily export is indexed locally: 1,176,123 eligible movie IDs after video exclusion, with 87,000+ MovieLens-linked titles immediately rankable.
 
 The ingestion and experimental ML pipeline is usable by a developer. MovieLens 32M models have been trained and five real personal held-out splits show the hybrid beating all three component baselines on average. Live and all-years rankers produce unseen-film recommendations, including movies absent from MovieLens. The API and responsive local frontend now serve dynamic single-profile and two-to-four-person group rankings, year and audience-reach filters, expected ratings, explanations, and metrics. It is a usable local proof of concept, not yet a deployed product.
 
@@ -24,6 +24,7 @@ The ingestion and experimental ML pipeline is usable by a developer. MovieLens 3
 - Browse a responsive local frontend defaulting to all years, with expected-rating provenance on every card.
 - Search the local catalog for a profile-specific expected score and inspect the five lowest expected matches in the active filter.
 - Rank a shared candidate set for two to four profiles, with individual expected scores/ranges, genre filtering, title lookup, bottom-five and taste-divergence lists, plus optional proportionally penalized rewatches.
+- Inspect a profile's complete rated-film history in a newest-first popup without exposing it outside the local profile database.
 - Sync the complete TMDB valid-ID universe and selectively enrich high-priority uncached titles in bounded batches.
 
 ## Not yet product-usable

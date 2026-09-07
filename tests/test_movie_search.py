@@ -1,4 +1,7 @@
+import gzip
+import json
 from importlib import import_module
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -20,6 +23,7 @@ def test_tmdb_score_search_preserves_relevance_order(monkeypatch) -> None:
             pass
 
     monkeypatch.setattr(main, "TmdbClient", FakeClient)
+    monkeypatch.setattr(main, "_local_movie_search_ids", lambda *_args: [])
     monkeypatch.setattr(
         main,
         "load_or_fetch_details",
@@ -82,3 +86,32 @@ def test_tmdb_score_search_reports_outage_instead_of_false_no_match(monkeypatch)
         main._tmdb_search_ids("Leviticus", 2026, 10)
     assert error.value.status_code == 503
     assert "temporarily unreachable" in error.value.detail
+
+
+def test_local_search_includes_cached_tmdb_only_titles(tmp_path: Path, monkeypatch) -> None:
+    main = import_module("app.main")
+    artifact = tmp_path / "artifacts" / "movielens-32m-test"
+    artifact.mkdir(parents=True)
+    (artifact / "manifest.json").write_text(
+        json.dumps({"files": {"catalog": "catalog.csv.gz"}}), encoding="utf-8"
+    )
+    with gzip.open(artifact / "catalog.csv.gz", "wt", encoding="utf-8") as handle:
+        handle.write("movieId,clean_title,year,tmdb_id\n1,Older Film,2000,10\n")
+    processed = tmp_path / "data" / "processed"
+    processed.mkdir(parents=True)
+    (processed / "tmdb-rich-details.json").write_text(
+        json.dumps(
+            {
+                "1564614": {
+                    "id": 1564614,
+                    "title": "Leviticus",
+                    "release_date": "2026-06-17",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main.settings, "ml_artifacts_dir", tmp_path / "artifacts")
+    monkeypatch.setattr(main.settings, "data_dir", tmp_path / "data")
+
+    assert main._local_movie_search_ids("Leviticus", 2026, 10) == [1564614]

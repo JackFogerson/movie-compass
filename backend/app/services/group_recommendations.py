@@ -376,7 +376,7 @@ def generate_group_recommendations(
             genre,
             title_query,
             candidate_tmdb_ids,
-            include_watched,
+            True,
         )
 
     with ThreadPoolExecutor(max_workers=len(normalized)) as executor:
@@ -439,7 +439,7 @@ def generate_group_recommendations(
                 runtime_max,
                 popularity,
                 genre,
-                include_watched,
+                True,
             )
 
         with ThreadPoolExecutor(max_workers=len(normalized)) as executor:
@@ -476,7 +476,9 @@ def generate_group_recommendations(
         disagreement = float(values.std())
         watched_by = [user for user in normalized if tmdb_id in watched_by_user[user]]
         watched_fraction = len(watched_by) / len(normalized)
-        rewatch_penalty = 0.2 * watched_fraction if include_watched else 0.0
+        if watched_fraction == 1.0 and not include_watched:
+            continue
+        rewatch_penalty = 0.2 * watched_fraction
         unpenalized_group_score = 0.6 * average + 0.4 * minimum - 0.1 * disagreement
         group_score = float(np.clip(unpenalized_group_score - rewatch_penalty, 0.5, 5.0))
         base = dict(scores_by_user[normalized[0]][tmdb_id])
@@ -547,7 +549,7 @@ def generate_group_recommendations(
         "users": normalized,
         "strategy": "balanced_average_and_minimum",
         "candidate_union": len(candidate_ids),
-        "eligible_for_everyone": len(common_ids),
+        "eligible_for_everyone": len(rows),
         "scoring_passes": 1 if used_shared_shortlist else 2,
         "year_filter": {"minimum": year_min, "maximum": year_max},
         "runtime_filter": {"minimum": runtime_min, "maximum": runtime_max},

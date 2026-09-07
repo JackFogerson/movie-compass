@@ -219,3 +219,26 @@ def test_group_rewatch_penalty_scales_with_watched_fraction(monkeypatch) -> None
     assert movie["watched_fraction"] == 0.5
     assert movie["rewatch_penalty"] == 0.1
     assert movie["group_score"] == 3.9
+
+
+def test_group_keeps_partially_watched_movies_without_rewatch_toggle(monkeypatch) -> None:
+    def fake_generate(_artifact, *, user, include_watched, **_kwargs):
+        assert include_watched is True
+        return {"recommendations": [_movie(10, 4.0, user), _movie(20, 3.8, user)]}
+
+    monkeypatch.setattr(service, "generate_recommendations", fake_generate)
+    monkeypatch.setattr(
+        service,
+        "_watched_by_user",
+        lambda _users: {"alice": {10, 20}, "bob": {20}},
+    )
+    report = service.generate_group_recommendations(
+        Path("partial-rewatch-artifact"),
+        ["alice", "bob"],
+        include_watched=False,
+        bottom_limit=0,
+    )
+
+    assert [movie["tmdb_id"] for movie in report["recommendations"]] == [10]
+    assert report["recommendations"][0]["rewatch_penalty"] == 0.1
+    assert report["eligible_for_everyone"] == 1

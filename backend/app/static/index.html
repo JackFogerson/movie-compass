@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Movie Compass</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260903-3" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260907-1" />
   </head>
   <body data-user="">
     <header class="site-header">
@@ -40,6 +40,7 @@
               <button id="save-profile" type="button">Save name</button>
               <button id="rebuild-profile" class="secondary-button" type="button">Rebuild ranking</button>
               <button id="show-profile-stats" class="secondary-button" type="button">View stats</button>
+              <button id="show-profile-ratings" class="secondary-button" type="button">Rating history</button>
               <button id="show-profile-accuracy" class="secondary-button" type="button">Model accuracy</button>
               <button id="export-profile" class="secondary-button" type="button">Download profile</button>
             </div>
@@ -144,7 +145,7 @@
           <label>Streaming country<select id="group-country"><option value="US" selected>USA</option><option value="CA">Canada</option><option value="GB">United Kingdom</option><option value="AU">Australia</option><option value="IE">Ireland</option><option value="NZ">New Zealand</option><option value="DE">Germany</option><option value="FR">France</option><option value="ES">Spain</option><option value="IT">Italy</option></select></label>
           <label>Results<select id="group-limit"><option selected>10</option><option>20</option><option>30</option></select></label>
           <button id="build-group" type="button">Find our movie</button>
-          <label class="rewatch-toggle"><input id="group-include-watched" type="checkbox" /><span><b>Include rewatches</b><small>Already-watched films can appear with a small penalty based on how much of the group has seen them.</small></span></label>
+          <label class="rewatch-toggle"><input id="group-include-watched" type="checkbox" /><span><b>Include movies everyone has seen</b><small>Movies seen by only part of the group are always eligible. Every prior viewer adds a small penalty so new discoveries remain favored.</small></span></label>
         </section>
         <section class="movie-search group-search" aria-label="Group expected score lookup">
           <div><span class="context-label">CHECK A MOVIE</span><strong>See how it fits everyone</strong></div>
@@ -176,9 +177,18 @@
       </footer>
     </main>
 
+    <dialog id="rating-history-dialog" class="rating-history-dialog">
+      <div class="rating-history-heading">
+        <div><span class="context-label">PROFILE HISTORY</span><h2 id="rating-history-title">Rated movies</h2></div>
+        <button id="close-rating-history" class="secondary-button" type="button" aria-label="Close rating history">Close</button>
+      </div>
+      <p id="rating-history-summary" class="rating-history-summary"></p>
+      <div id="rating-history-list" class="rating-history-list"></div>
+    </dialog>
+
     <template id="movie-card-template">
       <article class="movie-card"><div class="rank"></div><div class="poster-shell"><img class="movie-poster" loading="lazy" /></div><div class="movie-main"><div class="movie-heading"><div class="title-stack"><div class="movie-year"></div><h2 class="movie-title"></h2><div class="badges"></div></div><div class="rating-block"><span class="rating-label">EXPECTED</span><strong class="expected-rating"></strong><span class="rating-scale">/ 5</span><span class="plausible-range"></span></div></div><div class="movie-detail-grid"><div class="movie-copy"><p class="expectation-reason"></p><div class="group-scores"></div><ul class="explanations"></ul><div class="risk-explanation"><strong>Why it may not work for you</strong><ul class="cautions"></ul></div><details class="movie-metadata"><summary>Cast, director &amp; synopsis</summary><div class="metadata-copy"></div></details><details><summary>How this score was built</summary><div class="score-grid"></div></details></div><aside class="streaming-info"></aside></div></div></article>
     </template>
-    <script src="/static/app.js?v=20260903-3" defer></script>
+    <script src="/static/app.js?v=20260907-1" defer></script>
   </body>
 </html>

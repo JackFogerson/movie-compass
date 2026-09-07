@@ -26,8 +26,9 @@ Clone the private repository, open PowerShell in it, and run:
 
 The setup script securely asks for the TMDB key once, writes it only to the gitignored
 local `.env`, installs the application, and initializes a private SQLite profile database.
-The shared 87,000+ title MovieLens catalog and collaborative model are bundled, so there
-is no dataset download or multi-hour training step. In the current installation, choose
+The shared 87,000+ title MovieLens catalog, collaborative model, and a profile-free TMDB
+metadata snapshot are bundled, so there is no dataset download or multi-hour training step.
+Setup also creates any missing writable caches before the first import. In the current installation, choose
 **Manage profile → Download profile**; on the other laptop choose **Add profile** and use
 that ZIP. Only rated films, latest reviews, watched dates, and rewatch counts are moved.
 
@@ -39,9 +40,9 @@ contains no user profile. The one-time setup installs dependencies and asks you 
 the TMDB key locally; after that, import the profile ZIPs and ranking can use the bundled
 catalog/model immediately without downloading MovieLens or retraining the shared model.
 
-TMDB cache files are intentionally refreshed locally instead of stored in Git history:
-TMDB limits API-data caching to six months, while Git history is permanent. The API key
-is also never committed. See `THIRD_PARTY_NOTICES.md`.
+The bundled TMDB snapshot contains movie metadata only—never profile names, ratings,
+reviews, or viewing history—and the app refreshes stale entries from TMDB. The API key is
+never committed; `setup.ps1` stores it in the ignored local `.env`. See `THIRD_PARTY_NOTICES.md`.
 
 ## Manual/development setup
 
@@ -113,6 +114,7 @@ Saved reports and local dynamic reranking are available through the API:
 
 ```text
 GET /recommendations/{user}/scopes
+GET /profiles/{user}/ratings
 GET /recommendations/{user}?scope=all&year_min=1980&year_max=1999&limit=20
 POST /recommendations/{user}/refresh?year_min=1980&year_max=1999&popularity=cult_classic
 POST /profiles/import
@@ -131,7 +133,7 @@ uvicorn app.main:app --app-dir backend --reload
 
 Open `http://127.0.0.1:8000/`. The frontend separates personal recommendations and Movie Night into dedicated tabs, automatically lists every saved ranking-ready profile, and defaults to all years. It exposes genre, year, audience-reach, and result-count controls. Every card shows its rank, expected rating, evidence level, personalized rationale, genres, positive matches, and profile-specific cautions. The bottom-five sections explicitly explain the weak fit instead of presenting only reasons someone might enjoy the title.
 
-The group endpoints evaluate a shared candidate set for two to four imported profiles, expose every person's expected score and plausible range, and balance 60% average satisfaction with 40% protection for the lowest prediction plus a small disagreement penalty. Movie Night includes specific-title lookup, five shared least-likely matches, and five widest individual-rating disagreements. Watched movies are excluded by default; an optional rewatch mode applies a linear 0.20-point maximum penalty according to the fraction of the group that has seen each title. Personal and group rankings support genre, year, popularity, and result-count filters. Broad shared shortlists use a one-pass group scorer, large read-only model artifacts are reused in memory, and identical profile/filter shortlists are cached until the next import. Alternative group objectives still require comparative evaluation.
+The group endpoints evaluate a shared candidate set for two to four imported profiles, expose every person's expected score and plausible range, and balance 60% average satisfaction with 40% protection for the lowest prediction plus a small disagreement penalty. Movie Night includes specific-title lookup, five shared least-likely matches, and five widest individual-rating disagreements. Movies watched by only part of a group remain eligible and receive a linear penalty according to the fraction who have seen them. Movies everyone has seen are hidden by default, with an option to include them at the full 0.20-point penalty. Personal and group rankings support genre, year, popularity, and result-count filters. Broad shared shortlists use a one-pass group scorer, large read-only model artifacts are reused in memory, and identical profile/filter shortlists are cached until the next import. Alternative group objectives still require comparative evaluation.
 
 Sync TMDB's complete valid movie-ID universe and enrich it in controlled batches:
 
@@ -145,5 +147,5 @@ The sync streams TMDB's gzip JSON-lines export into a compact SQLite popularity 
 See `PROJECT_STATUS.md` for a direct assessment of what is currently usable.
 
 Run `pytest` and `ruff check .` for verification. Never commit `.env`, account exports,
-profile databases, TMDB cache files, or personal model artifacts. The explicitly allowlisted
-shared MovieLens artifact is the sole model-data exception.
+profile databases, generated recommendations, or personal model artifacts. Only the
+explicitly allowlisted shared MovieLens model and profile-free TMDB metadata are portable.

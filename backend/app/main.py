@@ -128,8 +128,39 @@ def _local_movie_search_ids(query: str, year: int | None, limit: int) -> list[in
             else:
                 match_quality = 2
             matches.append((match_quality, -(movie_year or 0), int(float(raw_tmdb_id))))
+    for cache_name in ("tmdb-rich-details.json", "display-metadata.json"):
+        cache_path = settings.processed_data_dir / cache_name
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for raw_tmdb_id, details in cached.items():
+            if details.get("missing") is True or not str(raw_tmdb_id).isdigit():
+                continue
+            release = str(details.get("release_date") or "")
+            movie_year = int(release[:4]) if release[:4].isdigit() else None
+            if year is not None and movie_year != year:
+                continue
+            titles = {details.get("title"), details.get("original_title")}
+            normalized_titles = {
+                normalize_title(str(title)) for title in titles if str(title or "").strip()
+            }
+            matching_titles = [title for title in normalized_titles if wanted in title]
+            if not matching_titles:
+                continue
+            best_quality = min(
+                0 if title == wanted else 1 if title.startswith(wanted) else 2
+                for title in matching_titles
+            )
+            matches.append((best_quality, -(movie_year or 0), int(raw_tmdb_id)))
     matches.sort()
-    return [tmdb_id for _, _, tmdb_id in matches[:limit]]
+    ordered = []
+    for _, _, tmdb_id in matches:
+        if tmdb_id not in ordered:
+            ordered.append(tmdb_id)
+        if len(ordered) >= limit:
+            break
+    return ordered
 
 
 def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
@@ -326,6 +357,78 @@ def profile_stats(user: str) -> dict:
         ],
         "rating_distribution": distribution,
         "last_imported_at": last_import.isoformat() if last_import else None,
+    }
+
+
+@app.get("/profiles/{user}/ratings")
+def profile_rating_history(user: str) -> dict:
+    """Return a profile's rated movies, newest watches first and high ratings first."""
+    from app.services.recommendation_reports import VALID_USER
+
+    if not VALID_USER.fullmatch(user):
+        raise HTTPException(status_code=422, detail="Invalid profile ID")
+    with SessionLocal() as session:
+        owner = session.scalar(select(User).where(User.slug == user))
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        rows = session.execute(
+            select(Movie, UserMovieInteraction)
+            .join(UserMovieInteraction, UserMovieInteraction.movie_id == Movie.id)
+            .where(
+                UserMovieInteraction.user_id == owner.id,
+                UserMovieInteraction.rating.is_not(None),
+            )
+            .order_by(
+                UserMovieInteraction.watched_date.desc(),
+                UserMovieInteraction.imported_at.desc(),
+                UserMovieInteraction.rating.desc(),
+                Movie.title,
+            )
+        ).all()
+    metadata_caches = []
+    for cache_name in ("display-metadata.json", "tmdb-rich-details.json"):
+        cache_path = settings.processed_data_dir / cache_name
+        try:
+            metadata_caches.append(
+                json.loads(cache_path.read_text(encoding="utf-8"))
+                if cache_path.is_file()
+                else {}
+            )
+        except (OSError, json.JSONDecodeError):
+            metadata_caches.append({})
+    ratings = []
+    for movie, interaction in rows:
+        metadata = next(
+            (
+                cache[str(movie.tmdb_id)]
+                for cache in metadata_caches
+                if movie.tmdb_id and str(movie.tmdb_id) in cache
+            ),
+            {},
+        )
+        poster_path = movie.poster_path or metadata.get("poster_path")
+        ratings.append(
+            {
+                "tmdb_id": movie.tmdb_id,
+                "title": movie.title,
+                "year": movie.year,
+                "rating": float(interaction.rating),
+                "watched_date": (
+                    interaction.watched_date.isoformat() if interaction.watched_date else None
+                ),
+                "review_text": interaction.review_text,
+                "rewatch_count": int(interaction.rewatch_count or 0),
+                "poster_url": (
+                    f"https://image.tmdb.org/t/p/w185{poster_path}" if poster_path else None
+                ),
+            }
+        )
+    return {
+        "user": user,
+        "display_name": owner.display_name,
+        "count": len(ratings),
+        "sort": "watched_date_desc_then_rating_desc",
+        "ratings": ratings,
     }
 
 
@@ -740,6 +843,23 @@ async def import_profile(
                                 break
                         direct = resolve_letterboxd_links(session, client, imported.user_id)
                         totals["matched"] += direct.matched
+                        mapped_tmdb_ids = {
+                            int(value)
+                            for value in session.scalars(
+                                select(Movie.tmdb_id)
+                                .join(ImportMapping, ImportMapping.movie_id == Movie.id)
+                                .where(
+                                    ImportMapping.user_id == imported.user_id,
+                                    ImportMapping.rating.is_not(None),
+                                    Movie.tmdb_id.is_not(None),
+                                )
+                            )
+                        }
+                        load_or_fetch_details(
+                            client,
+                            mapped_tmdb_ids,
+                            settings.processed_data_dir / "tmdb-rich-details.json",
+                        )
                     except RetryError:
                         mapping_warning = (
                             "The export was imported, but TMDB mapping could not reach "

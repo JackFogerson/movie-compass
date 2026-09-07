@@ -1,6 +1,7 @@
 import io
 import json
 import zipfile
+from datetime import date
 from importlib import import_module
 from pathlib import Path
 
@@ -121,6 +122,48 @@ def test_fresh_install_can_start_without_profiles(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"profiles": []}
+
+
+def test_profile_rating_history_is_newest_first(monkeypatch) -> None:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        owner = User(slug="viewer", display_name="Viewer")
+        older = Movie(tmdb_id=1, title="Older Watch", year=2001, poster_path="/older.jpg")
+        newer = Movie(tmdb_id=2, title="Newer Watch", year=2024)
+        session.add_all([owner, older, newer])
+        session.flush()
+        session.add_all(
+            [
+                UserMovieInteraction(
+                    user_id=owner.id,
+                    movie_id=older.id,
+                    rating=5.0,
+                    watched=True,
+                    watched_date=date(2024, 1, 1),
+                    source="letterboxd",
+                ),
+                UserMovieInteraction(
+                    user_id=owner.id,
+                    movie_id=newer.id,
+                    rating=3.5,
+                    review_text="Recent review",
+                    watched=True,
+                    watched_date=date(2026, 8, 1),
+                    source="letterboxd",
+                ),
+            ]
+        )
+        session.commit()
+
+    main_module = import_module("app.main")
+    monkeypatch.setattr(main_module, "SessionLocal", session_factory)
+    response = TestClient(app).get("/profiles/viewer/ratings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["title"] for item in payload["ratings"]] == ["Newer Watch", "Older Watch"]
+    assert payload["ratings"][0]["review_text"] == "Recent review"
+    assert payload["ratings"][1]["poster_url"].endswith("/older.jpg")
 
 
 def test_profile_export_is_rating_only_and_reimportable(monkeypatch) -> None:

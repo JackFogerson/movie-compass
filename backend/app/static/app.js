@@ -19,7 +19,13 @@ const profileIdInput = document.querySelector("#profile-id");
 const saveProfileButton = document.querySelector("#save-profile");
 const rebuildProfileButton = document.querySelector("#rebuild-profile");
 const showProfileStatsButton = document.querySelector("#show-profile-stats");
+const showProfileRatingsButton = document.querySelector("#show-profile-ratings");
 const profileStats = document.querySelector("#profile-stats");
+const ratingHistoryDialog = document.querySelector("#rating-history-dialog");
+const ratingHistoryTitle = document.querySelector("#rating-history-title");
+const ratingHistorySummary = document.querySelector("#rating-history-summary");
+const ratingHistoryList = document.querySelector("#rating-history-list");
+const closeRatingHistoryButton = document.querySelector("#close-rating-history");
 const showProfileAccuracyButton = document.querySelector("#show-profile-accuracy");
 const exportProfileButton = document.querySelector("#export-profile");
 const profileAccuracy = document.querySelector("#profile-accuracy");
@@ -495,6 +501,35 @@ async function showProfileStats() {
   }
 }
 
+async function showProfileRatings() {
+  showProfileRatingsButton.disabled = true;
+  showProfileRatingsButton.textContent = "Loading…";
+  try {
+    const response = await fetch(`/profiles/${encodeURIComponent(user)}/ratings`);
+    const result = await responseJson(response);
+    if (!response.ok) throw new Error(result.detail || "Rating history could not be loaded");
+    ratingHistoryTitle.textContent = `${result.display_name}'s rated movies`;
+    ratingHistorySummary.textContent = `${result.count} rated film${result.count === 1 ? "" : "s"} · most recent watches first`;
+    ratingHistoryList.innerHTML = result.ratings.length
+      ? result.ratings.map((item) => `
+          <article class="rating-history-row">
+            ${item.poster_url ? `<img src="${escapeHtml(item.poster_url)}" alt="" loading="lazy" />` : '<span class="rating-history-poster-placeholder"></span>'}
+            <div class="rating-history-copy">
+              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.year ?? "Year unavailable")}${item.watched_date ? ` · watched ${escapeHtml(item.watched_date)}` : ""}</span></div>
+              ${item.review_text ? `<p>${escapeHtml(item.review_text)}</p>` : ""}
+            </div>
+            <div class="rating-history-score"><strong>${item.rating.toFixed(1)}</strong><span>★ / 5</span>${item.rewatch_count ? `<small>${item.rewatch_count} rewatch${item.rewatch_count === 1 ? "" : "es"}</small>` : ""}</div>
+          </article>`).join("")
+      : '<div class="empty">No rated movies are saved for this profile.</div>';
+    ratingHistoryDialog.showModal();
+  } catch (error) {
+    profileEditorStatus.textContent = error.message;
+  } finally {
+    showProfileRatingsButton.disabled = false;
+    showProfileRatingsButton.textContent = "Rating history";
+  }
+}
+
 async function showProfileAccuracy() {
   showProfileAccuracyButton.disabled = true;
   showProfileAccuracyButton.textContent = "Testing…";
@@ -773,7 +808,9 @@ async function buildGroupRecommendations() {
       `${result.eligible_for_everyone.toLocaleString()} shared candidates were eligible for everyone. ` +
       `Ranked in ${((performance.now() - startedAt) / 1000).toFixed(1)} seconds. ` +
       "The group score rewards a strong average while protecting the least enthusiastic person." +
-      (result.include_watched ? " Rewatches are included with a proportional penalty." : " Showing new-to-everyone movies only.");
+      (result.include_watched
+        ? " Movies seen by the whole group are included."
+        : " Movies everyone has already seen are hidden; partially watched choices remain eligible.");
     result.recommendations.forEach((movie) => groupResults.append(renderMovie(movie)));
     if (!result.recommendations.length) {
       groupResults.innerHTML = `<div class="empty">No shared unwatched movies matched these filters.</div>`;
@@ -918,6 +955,11 @@ importButton.addEventListener("click", importProfile);
 saveProfileButton.addEventListener("click", saveProfile);
 rebuildProfileButton.addEventListener("click", rebuildProfile);
 showProfileStatsButton.addEventListener("click", showProfileStats);
+showProfileRatingsButton.addEventListener("click", showProfileRatings);
+closeRatingHistoryButton.addEventListener("click", () => ratingHistoryDialog.close());
+ratingHistoryDialog.addEventListener("click", (event) => {
+  if (event.target === ratingHistoryDialog) ratingHistoryDialog.close();
+});
 showProfileAccuracyButton.addEventListener("click", showProfileAccuracy);
 exportProfileButton.addEventListener("click", exportProfile);
 findManualMovieButton.addEventListener("click", findManualMovie);
