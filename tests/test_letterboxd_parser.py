@@ -124,8 +124,20 @@ def test_latest_review_wins_and_explicit_rewatch_is_counted(tmp_path: Path) -> N
         "Rewatch": "No",
     }
     reviews = [
-        {**base, "Date": "2026-08-31", "Watched Date": "2026-08-30", "Review": "Latest"},
-        {**base, "Date": "2026-01-01", "Watched Date": "2025-12-31", "Review": "Older"},
+        {
+            **base,
+            "Date": "2026-08-31",
+            "Watched Date": "2026-08-30",
+            "Rating": "3",
+            "Review": "Latest",
+        },
+        {
+            **base,
+            "Date": "2026-01-01",
+            "Watched Date": "2025-12-31",
+            "Rating": "2",
+            "Review": "Older",
+        },
     ]
     diary = [
         {**base, "Date": "2026-08-31", "Watched Date": "2026-08-30", "Rewatch": "Yes"},
@@ -137,5 +149,7 @@ def test_latest_review_wins_and_explicit_rewatch_is_counted(tmp_path: Path) -> N
     movies, _ = parse_export(archive)
     assert movies[0].review_text == "Latest"
     assert movies[0].review_date.isoformat() == "2026-08-30"
+    assert movies[0].rating == 3.0
+    assert movies[0].rating_date.isoformat() == "2026-08-30"
     assert movies[0].diary_entries == 2
     assert movies[0].rewatch_count == 1

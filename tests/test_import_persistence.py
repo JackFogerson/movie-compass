@@ -106,6 +106,39 @@ def test_mapping_creates_interaction_and_reuses_cache_across_users(tmp_path: Pat
     assert ratings == [4.5, 4.5]
 
 
+def test_new_export_resynchronizes_existing_mapped_interaction(tmp_path: Path) -> None:
+    session = _session()
+    first_archive = _archive(tmp_path / "first.zip")
+    imported = import_letterboxd_archive(session, first_archive, "viewer")
+    map_pending_letterboxd(session, FakeTmdbClient(), imported.user_id)
+    interaction = session.scalar(select(UserMovieInteraction))
+    assert float(interaction.rating) == 4.5
+
+    second_archive = tmp_path / "second.zip"
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["Date", "Name", "Year", "Letterboxd URI", "Rating"],
+    )
+    writer.writeheader()
+    writer.writerow(
+        {
+            "Date": "2026-09-07",
+            "Name": "Arrival",
+            "Year": "2016",
+            "Letterboxd URI": "https://boxd.it/ed3g",
+            "Rating": "3.0",
+        }
+    )
+    with zipfile.ZipFile(second_archive, "w") as bundle:
+        bundle.writestr("ratings.csv", output.getvalue())
+
+    import_letterboxd_archive(session, second_archive, "viewer")
+    session.refresh(interaction)
+
+    assert float(interaction.rating) == 3.0
+
+
 def test_import_ignores_watchlist_only_films(tmp_path: Path) -> None:
     archive = _archive(tmp_path / "letterboxd.zip")
     watchlist = io.StringIO()

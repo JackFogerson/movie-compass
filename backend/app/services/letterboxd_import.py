@@ -9,7 +9,8 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.db.models import ImportMapping, ImportRun, User, UserMovieInteraction
+from app.db.models import ImportMapping, ImportRun, Movie, User, UserMovieInteraction
+from app.services.tmdb_mapping import upsert_interaction
 from ingestion.letterboxd.parser import LetterboxdMovie, parse_export
 
 
@@ -61,6 +62,21 @@ def _apply_movie(mapping: ImportMapping, movie: LetterboxdMovie) -> None:
         mapping.candidates_json = None
 
 
+def _sync_mapped_interactions(session: Session, user_id: int) -> None:
+    """Keep canonical interactions aligned when a later export changes a rating or review."""
+    mappings = session.scalars(
+        select(ImportMapping).where(
+            ImportMapping.user_id == user_id,
+            ImportMapping.rating.is_not(None),
+            ImportMapping.movie_id.is_not(None),
+        )
+    ).all()
+    for mapping in mappings:
+        movie = session.get(Movie, mapping.movie_id)
+        if movie is not None:
+            upsert_interaction(session, mapping, movie)
+
+
 def import_letterboxd_archive(
     session: Session,
     archive_path: Path,
@@ -94,6 +110,7 @@ def import_letterboxd_archive(
         )
     )
     if prior and prior.status == "completed" and not force:
+        _sync_mapped_interactions(session, user.id)
         session.commit()
         return PersistedImportResult(prior.id, user.id, archive_hash, len(movies), 0, 0, 0, True)
 
@@ -132,6 +149,8 @@ def import_letterboxd_archive(
         else:
             updated += 1
         _apply_movie(mapping, movie)
+    session.flush()
+    _sync_mapped_interactions(session, user.id)
     removed_stale = 0
     if force:
         stale = session.scalars(

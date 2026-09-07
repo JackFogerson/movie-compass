@@ -58,6 +58,7 @@ class LetterboxdMovie:
     year: int | None
     letterboxd_uri: str | None = None
     rating: float | None = None
+    rating_date: date | None = None
     watched: bool = False
     watched_dates: set[date] = field(default_factory=set)
     review_text: str | None = None
@@ -123,14 +124,21 @@ def parse_export(archive_path: Path) -> tuple[list[LetterboxdMovie], ImportRepor
                 )
                 if kind in {"ratings", "watched", "watchlist", "likes"} and uri:
                     movie.letterboxd_uri = uri
-                if kind == "ratings":
-                    try:
-                        movie.rating = float(row.get("Rating") or "")
-                    except ValueError:
-                        pass
-                elif kind in {"watched", "diary", "reviews"}:
+                rating_date = _parse_date(row.get("Watched Date") or row.get("Date"))
+                try:
+                    row_rating = float(row.get("Rating") or "")
+                except ValueError:
+                    row_rating = None
+                if row_rating is not None and (
+                    movie.rating is None
+                    or rating_date is not None
+                    and (movie.rating_date is None or rating_date >= movie.rating_date)
+                ):
+                    movie.rating = row_rating
+                    movie.rating_date = rating_date
+                if kind in {"watched", "diary", "reviews"}:
                     movie.watched = True
-                    watched_date = _parse_date(row.get("Watched Date") or row.get("Date"))
+                    watched_date = rating_date
                     if watched_date:
                         movie.watched_dates.add(watched_date)
                     if kind == "diary":
