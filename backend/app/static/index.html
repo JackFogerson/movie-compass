@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Movie Compass</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260907-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260908-1" />
   </head>
   <body data-user="">
     <header class="site-header">
@@ -23,6 +23,7 @@
       <nav class="view-tabs" aria-label="Recommendation mode">
         <button class="view-tab active" data-view="personal" type="button"><span>For me</span><small>One taste profile</small></button>
         <button class="view-tab" data-view="group" type="button"><span>Movie night</span><small>Two to four people</small></button>
+        <button class="view-tab" data-view="profiles" type="button"><span>Profiles</span><small>History, stats &amp; settings</small></button>
       </nav>
 
       <section id="personal-view" class="app-view">
@@ -32,7 +33,7 @@
             <select id="profile-select" aria-label="Active taste profile"></select>
           </div>
           <div id="profile-summary" class="profile-summary">Loading saved profiles…</div>
-          <details class="profile-drawer profile-editor">
+          <details class="profile-drawer profile-editor" open>
             <summary>Manage profile</summary>
             <div class="profile-editor-form">
               <label>Display name<input id="profile-display-name" maxlength="100" /></label>
@@ -126,6 +127,18 @@
         <section id="lowest-recommendations" class="recommendations lowest" aria-live="polite"></section>
       </section>
 
+      <section id="profiles-view" class="app-view" hidden>
+        <section class="profiles-hero">
+          <div><span class="context-label">PROFILE LIBRARY</span><h2>Understand and manage a taste profile.</h2><p>Explore viewing patterns, model accuracy and rating history, or update the data that powers recommendations.</p></div>
+          <label class="profile-management-picker">Profile to manage<select id="manage-profile-select" aria-label="Profile to manage"></select></label>
+        </section>
+        <section id="profile-management-host" class="profile-management-host"></section>
+        <section id="profiles-empty-state" class="empty-profile-state" hidden>
+          <strong>No profiles to manage yet</strong>
+          <p>Go to <b>For me</b> and use <b>Add profile</b> to import a Letterboxd ZIP.</p>
+        </section>
+      </section>
+
       <section id="group-view" class="app-view" hidden>
         <section class="group-hero">
           <div><span class="context-label">MOVIE NIGHT</span><h2>Find the film everyone can enjoy.</h2><p>Choose two to four saved profiles. The ranking rewards a strong group average while avoiding a weak match for any one person.</p></div>
@@ -166,7 +179,7 @@
         <section id="group-divisive-heading" class="bottom-five-heading" hidden>
           <span class="context-label">TASTE SPLITTERS</span>
           <h2>Each person's biggest taste split</h2>
-          <p>Every selected person gets a section. It prefers a movie where they lead the group, then falls back to their widest second-place, third-place, or closest available contrast.</p>
+          <p>Every selected person gets a section using only movies nobody in the group has rated. It prefers a movie where they lead the group, then falls back to their widest available contrast.</p>
         </section>
         <section id="group-divisive-results" class="recommendations" aria-live="polite"></section>
       </section>
@@ -189,6 +202,6 @@
     <template id="movie-card-template">
       <article class="movie-card"><div class="rank"></div><div class="poster-shell"><img class="movie-poster" loading="lazy" /></div><div class="movie-main"><div class="movie-heading"><div class="title-stack"><div class="movie-year"></div><h2 class="movie-title"></h2><div class="badges"></div></div><div class="rating-block"><span class="rating-label">EXPECTED</span><strong class="expected-rating"></strong><span class="rating-scale">/ 5</span><span class="plausible-range"></span></div></div><div class="movie-detail-grid"><div class="movie-copy"><p class="expectation-reason"></p><div class="group-scores"></div><ul class="explanations"></ul><div class="risk-explanation"><strong>Why it may not work for you</strong><ul class="cautions"></ul></div><details class="movie-metadata"><summary>Cast, director &amp; synopsis</summary><div class="metadata-copy"></div></details><details><summary>How this score was built</summary><div class="score-grid"></div></details></div><aside class="streaming-info"></aside></div></div></article>
     </template>
-    <script src="/static/app.js?v=20260907-1" defer></script>
+    <script src="/static/app.js?v=20260908-1" defer></script>
   </body>
 </html>

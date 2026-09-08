@@ -1,3 +1,4 @@
+from datetime import date
 from importlib import import_module
 
 from app.db.models import ImportMapping, Movie, User, UserMovieInteraction
@@ -43,6 +44,17 @@ def test_manual_rating_is_saved_and_rebuilds_profile(tmp_path, monkeypatch) -> N
                 "credits": {"crew": [], "cast": []},
             }
 
+        def search_movie(self, query, year):
+            assert (query, year) == ("The Matrix", 1999)
+            return [
+                {
+                    "id": 603,
+                    "title": "The Matrix",
+                    "release_date": "1999-03-30",
+                    "poster_path": "/poster.jpg",
+                }
+            ]
+
         def close(self):
             pass
 
@@ -71,14 +83,19 @@ def test_manual_rating_is_saved_and_rebuilds_profile(tmp_path, monkeypatch) -> N
                 review_text="Still exhilarating.",
             ),
         )
+        search = main_module.rating_movie_search("The Matrix", 1999, "critic")
     finally:
         settings.data_dir = old_data_dir
 
     assert result["ranking_updated"] is True
+    assert search["results"][0]["current_rating"] == 4.5
+    assert search["results"][0]["current_review_text"] == "Still exhilarating."
     assert rebuilt == [True]
     with session_factory() as session:
         interaction = session.scalar(select(UserMovieInteraction))
         mapping = session.scalar(select(ImportMapping))
         assert float(interaction.rating) == 4.5
         assert interaction.review_text == "Still exhilarating."
+        assert interaction.watched_date == date.today()
+        assert mapping.watched_date == date.today()
         assert mapping.status == "matched_manual"

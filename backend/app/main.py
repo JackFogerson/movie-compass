@@ -33,6 +33,7 @@ from app.services.letterboxd_import import import_letterboxd_archive
 from app.services.local_catalog_mapping import map_pending_from_artifact
 from app.services.profile_accuracy import profile_accuracy as evaluate_profile_accuracy
 from app.services.profile_export import build_profile_archive, restore_profile_archive
+from app.services.profile_stats import build_taste_breakdown
 from app.services.recommendation_reports import (
     RecommendationReportNotFound,
     _latest_artifact,
@@ -325,7 +326,12 @@ def profile_stats(user: str) -> dict:
                 ImportMapping.review_text,
                 ImportMapping.rewatch_count,
                 ImportMapping.status,
-            ).where(
+                ImportMapping.year,
+                Movie.tmdb_id,
+                Movie.runtime,
+            )
+            .outerjoin(Movie, Movie.id == ImportMapping.movie_id)
+            .where(
                 ImportMapping.user_id == owner.id,
                 ImportMapping.rating.is_not(None),
             )
@@ -338,6 +344,30 @@ def profile_stats(user: str) -> dict:
     for rating in ratings:
         distribution[f"{rating:.1f}"] = distribution.get(f"{rating:.1f}", 0) + 1
     mapped_statuses = {"matched", "matched_local", "matched_manual"}
+    details_path = settings.processed_data_dir / "tmdb-rich-details.json"
+    try:
+        details_raw = (
+            json.loads(details_path.read_text(encoding="utf-8"))
+            if details_path.is_file()
+            else {}
+        )
+    except (OSError, json.JSONDecodeError):
+        details_raw = {}
+    details_by_id = {
+        int(key): value for key, value in details_raw.items() if str(key).isdigit()
+    }
+    taste_breakdown = build_taste_breakdown(
+        [
+            {
+                "rating": float(row.rating),
+                "year": row.year,
+                "tmdb_id": row.tmdb_id,
+                "runtime": row.runtime,
+            }
+            for row in rows
+        ],
+        details_by_id,
+    )
     return {
         "slug": owner.slug,
         "display_name": owner.display_name,
@@ -356,6 +386,7 @@ def profile_stats(user: str) -> dict:
             if int(row.rewatch_count or 0) > 0
         ],
         "rating_distribution": distribution,
+        "taste_breakdown": taste_breakdown,
         "last_imported_at": last_import.isoformat() if last_import else None,
     }
 
@@ -470,6 +501,7 @@ def profile_accuracy(user: str) -> dict:
 def rating_movie_search(
     q: str = Query(min_length=2, max_length=120),
     year: int | None = Query(default=None, ge=1870, le=2200),
+    user: str | None = Query(default=None, max_length=100),
 ) -> dict:
     """Find exact TMDB records before adding a manual profile rating."""
     if not settings.tmdb_api_key:
@@ -484,8 +516,7 @@ def rating_movie_search(
         ) from error
     finally:
         client.close()
-    return {
-        "results": [
+    result_rows = [
             {
                 "tmdb_id": int(item["id"]),
                 "title": item.get("title") or item.get("original_title") or "Untitled",
@@ -503,7 +534,27 @@ def rating_movie_search(
             for item in results
             if item.get("id") is not None
         ]
-    }
+    if user:
+        from app.services.recommendation_reports import VALID_USER
+
+        if not VALID_USER.fullmatch(user):
+            raise HTTPException(status_code=422, detail="Invalid profile ID")
+        result_ids = [item["tmdb_id"] for item in result_rows]
+        with SessionLocal() as session:
+            existing = session.execute(
+                select(Movie.tmdb_id, UserMovieInteraction)
+                .join(UserMovieInteraction, UserMovieInteraction.movie_id == Movie.id)
+                .join(User, User.id == UserMovieInteraction.user_id)
+                .where(User.slug == user, Movie.tmdb_id.in_(result_ids))
+            ).all()
+        by_tmdb = {int(tmdb_id): interaction for tmdb_id, interaction in existing}
+        for item in result_rows:
+            interaction = by_tmdb.get(item["tmdb_id"])
+            item["current_rating"] = (
+                float(interaction.rating) if interaction and interaction.rating else None
+            )
+            item["current_review_text"] = interaction.review_text if interaction else None
+    return {"results": result_rows}
 
 
 @app.put("/profiles/{user}/ratings")
@@ -546,6 +597,7 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
     title = str(details.get("title") or request.title)
     year = int(release[:4]) if release[:4].isdigit() else request.year
     review = (request.review_text or "").strip() or None
+    entered_on = date.today()
     with SessionLocal() as session:
         owner = session.scalar(select(User).where(User.slug == user))
         if owner is None:
@@ -578,6 +630,7 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
         interaction.rating = Decimal(str(request.rating))
         interaction.review_text = review
         interaction.watched = True
+        interaction.watched_date = entered_on
         mapping = session.scalar(
             select(ImportMapping).where(
                 ImportMapping.user_id == owner.id,
@@ -599,6 +652,7 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
         mapping.rating = Decimal(str(request.rating))
         mapping.review_text = review
         mapping.watched = True
+        mapping.watched_date = entered_on
         mapping.title = title
         mapping.year = year
         mapping.status = "matched_manual" if mapping.source == "manual" else mapping.status

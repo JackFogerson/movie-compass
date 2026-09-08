@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from math import sqrt
+from statistics import mean
+
+LANGUAGE_NAMES = {
+    "en": "English-language",
+    "es": "Spanish-language",
+    "fr": "French-language",
+    "de": "German-language",
+    "it": "Italian-language",
+    "ja": "Japanese-language",
+    "ko": "Korean-language",
+    "zh": "Chinese-language",
+    "hi": "Hindi-language",
+    "pt": "Portuguese-language",
+}
+
+
+def _named_values(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [
+        str(value.get("name")).strip()
+        for value in values
+        if isinstance(value, dict) and str(value.get("name") or "").strip()
+    ]
+
+
+def _summarize(
+    values: dict[str, list[float]],
+    profile_average: float,
+    *,
+    minimum: int,
+    limit: int = 8,
+) -> list[dict]:
+    rows = []
+    for label, ratings in values.items():
+        if len(ratings) < minimum:
+            continue
+        observed = mean(ratings)
+        # A small profile-average prior keeps one or two titles from looking definitive.
+        expected = (sum(ratings) + 3 * profile_average) / (len(ratings) + 3)
+        rows.append(
+            {
+                "label": label,
+                "expected_rating": round(expected, 2),
+                "observed_average": round(observed, 2),
+                "difference_from_profile": round(expected - profile_average, 2),
+                "films": len(ratings),
+            }
+        )
+    rows.sort(key=lambda item: (item["expected_rating"], item["films"]), reverse=True)
+    if len(rows) <= limit:
+        return rows
+    top_count = (limit + 1) // 2
+    bottom_count = limit - top_count
+    return [*rows[:top_count], *rows[-bottom_count:]]
+
+
+def build_taste_breakdown(
+    rated_movies: list[dict], details_by_id: dict[int, dict]
+) -> dict:
+    ratings = [float(item["rating"]) for item in rated_movies]
+    if not ratings:
+        return {}
+    profile_average = mean(ratings)
+    categories: dict[str, dict[str, list[float]]] = {
+        name: defaultdict(list)
+        for name in ("genres", "themes", "decades", "directors", "languages", "runtimes")
+    }
+    for movie in rated_movies:
+        rating = float(movie["rating"])
+        details = details_by_id.get(int(movie["tmdb_id"]), {}) if movie.get("tmdb_id") else {}
+        for genre in set(_named_values(details.get("genres"))):
+            categories["genres"][genre].append(rating)
+        keyword_block = details.get("keywords") or {}
+        keywords = keyword_block.get("keywords", []) if isinstance(keyword_block, dict) else []
+        for theme in set(_named_values(keywords)[:24]):
+            categories["themes"][theme.capitalize()].append(rating)
+        year = movie.get("year")
+        if year:
+            categories["decades"][f"{int(year) // 10 * 10}s"].append(rating)
+        crew = (details.get("credits") or {}).get("crew", [])
+        for director in {
+            str(person.get("name"))
+            for person in crew
+            if isinstance(person, dict) and person.get("job") == "Director" and person.get("name")
+        }:
+            categories["directors"][director].append(rating)
+        language = str(details.get("original_language") or "").lower()
+        if language:
+            categories["languages"][LANGUAGE_NAMES.get(language, language.upper())].append(rating)
+        runtime = details.get("runtime") or movie.get("runtime")
+        if runtime:
+            runtime = int(runtime)
+            label = (
+                "Under 90 minutes"
+                if runtime < 90
+                else "90–119 minutes"
+                if runtime < 120
+                else "120–149 minutes"
+                if runtime < 150
+                else "150+ minutes"
+            )
+            categories["runtimes"][label].append(rating)
+
+    standard_deviation = sqrt(mean((rating - profile_average) ** 2 for rating in ratings))
+    return {
+        "profile_average": round(profile_average, 2),
+        "explanation": (
+            "Expected ratings describe a generic movie with that trait. They blend the observed "
+            "average back toward this profile's usual rating when evidence is limited."
+        ),
+        "genres": _summarize(categories["genres"], profile_average, minimum=2),
+        "themes": _summarize(categories["themes"], profile_average, minimum=2),
+        "decades": _summarize(categories["decades"], profile_average, minimum=1),
+        "directors": _summarize(categories["directors"], profile_average, minimum=2),
+        "languages": _summarize(categories["languages"], profile_average, minimum=2),
+        "runtimes": _summarize(categories["runtimes"], profile_average, minimum=2),
+        "fun_facts": {
+            "rating_spread": round(standard_deviation, 2),
+            "five_star_films": sum(rating == 5 for rating in ratings),
+            "two_stars_or_lower": sum(rating <= 2 for rating in ratings),
+            "genres_explored": len(categories["genres"]),
+            "decades_explored": len(categories["decades"]),
+            "languages_explored": len(categories["languages"]),
+        },
+    }

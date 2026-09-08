@@ -13,6 +13,8 @@ def test_frontend_is_served() -> None:
     assert response.status_code == 200
     assert "What should we watch?" in response.text
     assert "Movie night" in response.text
+    assert "Profiles" in response.text
+    assert "History, stats &amp; settings" in response.text
     assert "Add or edit one movie" in response.text
     assert "Model accuracy" in response.text
     assert 'data-user=""' in response.text

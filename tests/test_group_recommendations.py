@@ -266,3 +266,34 @@ def test_group_keeps_partially_watched_movies_without_rewatch_toggle(monkeypatch
     assert [movie["tmdb_id"] for movie in report["recommendations"]] == [10]
     assert report["recommendations"][0]["rewatch_penalty"] == 0.1
     assert report["eligible_for_everyone"] == 1
+
+
+def test_taste_splits_never_use_a_movie_watched_by_any_group_member(monkeypatch) -> None:
+    scores = {
+        "alice": {10: 5.0, 20: 4.5},
+        "bob": {10: 2.0, 20: 3.5},
+    }
+
+    def fake_generate(_artifact, *, user, **_kwargs):
+        return {
+            "recommendations": [
+                _movie(tmdb_id, score, user) for tmdb_id, score in scores[user].items()
+            ]
+        }
+
+    monkeypatch.setattr(service, "generate_recommendations", fake_generate)
+    monkeypatch.setattr(
+        service,
+        "_watched_by_user",
+        lambda _users: {"alice": {10}, "bob": set()},
+    )
+
+    report = service.generate_group_recommendations(
+        Path("unwatched-splits"),
+        ["alice", "bob"],
+        include_watched=True,
+        bottom_limit=0,
+    )
+
+    assert all(movie["tmdb_id"] != 10 for movie in report["most_divisive"])
+    assert all(not movie["watched_by"] for movie in report["most_divisive"])

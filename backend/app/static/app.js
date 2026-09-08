@@ -46,6 +46,9 @@ const deleteProfileConfirmation = document.querySelector("#delete-profile-confir
 const deleteProfileButton = document.querySelector("#delete-profile");
 const profileEditorStatus = document.querySelector("#profile-editor-status");
 const profileEditor = document.querySelector(".profile-editor");
+const manageProfileSelect = document.querySelector("#manage-profile-select");
+const profileManagementHost = document.querySelector("#profile-management-host");
+const profilesEmptyState = document.querySelector("#profiles-empty-state");
 const emptyProfileState = document.querySelector("#empty-profile-state");
 const profileArchiveInput = document.querySelector("#profile-archive");
 const importButton = document.querySelector("#import-profile");
@@ -78,6 +81,8 @@ const groupLowestResults = document.querySelector("#group-lowest-results");
 const groupDivisiveHeading = document.querySelector("#group-divisive-heading");
 const groupDivisiveResults = document.querySelector("#group-divisive-results");
 const viewTabs = [...document.querySelectorAll(".view-tab")];
+profileManagementHost.append(profileEditor);
+profileEditor.open = true;
 let catalogStatus = null;
 let savedProfiles = [];
 let selectedManualMovie = null;
@@ -355,6 +360,8 @@ function syncProfileEditor() {
   manualMovieResults.hidden = true;
   manualMovieResults.innerHTML = "";
   manualRatingFields.hidden = true;
+  manualMovieRatingInput.value = "3.5";
+  manualMovieReviewInput.value = "";
   manualRatingStatus.textContent = "";
   profileEditorStatus.textContent = profile?.ranking_ready
     ? "Ranking is ready. Upload another export under this profile ID to update its movie history."
@@ -371,6 +378,10 @@ function populateProfileSelectors(preferred = null) {
   else if (!savedProfiles.length) user = "";
   profileSelect.value = user;
   profileSelect.disabled = !savedProfiles.length;
+  manageProfileSelect.innerHTML = profileSelect.innerHTML;
+  manageProfileSelect.value = user;
+  manageProfileSelect.disabled = !savedProfiles.length;
+  profilesEmptyState.hidden = Boolean(savedProfiles.length);
   document.body.dataset.user = user;
 
   const automaticGroup = [
@@ -402,11 +413,13 @@ async function loadProfiles(preferred = null) {
 }
 
 function switchView(view) {
-  const groupActive = view === "group";
-  document.querySelector("#personal-view").hidden = groupActive;
-  document.querySelector("#group-view").hidden = !groupActive;
-  viewTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
-  history.replaceState(null, "", groupActive ? "#movie-night" : location.pathname);
+  const selected = ["personal", "group", "profiles"].includes(view) ? view : "personal";
+  document.querySelector("#personal-view").hidden = selected !== "personal";
+  document.querySelector("#group-view").hidden = selected !== "group";
+  document.querySelector("#profiles-view").hidden = selected !== "profiles";
+  viewTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.view === selected));
+  const destination = selected === "group" ? "#movie-night" : selected === "profiles" ? "#profiles" : location.pathname;
+  history.replaceState(null, "", destination);
 }
 
 async function loadRecommendations({ refresh = false } = {}) {
@@ -495,6 +508,25 @@ async function showProfileStats() {
           ${surprise("Lowest actual rating versus expected", accuracy.rating_surprises.lowest_actual_minus_expected)}
         </section>`
       : `<section class="prediction-surprises"><div><strong>Rated movies vs expected</strong><span>${escapeHtml(accuracy.detail || "At least ten model-linked ratings are needed for an honest held-out comparison.")}</span></div></section>`;
+    const taste = stats.taste_breakdown || {};
+    const tasteRows = (heading, items) => items?.length ? `
+      <section class="taste-stat-card">
+        <h3>${escapeHtml(heading)}</h3>
+        ${items.map((item) => `<div class="taste-stat-row"><span>${escapeHtml(item.label)}<small>${item.films} rated film${item.films === 1 ? "" : "s"}</small></span><strong>${item.expected_rating.toFixed(2)} ★<small>${item.difference_from_profile >= 0 ? "+" : ""}${item.difference_from_profile.toFixed(2)} vs usual</small></strong></div>`).join("")}
+      </section>` : "";
+    const tasteBreakdown = taste.explanation ? `
+      <section class="taste-breakdown">
+        <div class="taste-breakdown-heading"><strong>Your taste, feature by feature</strong><span>${escapeHtml(taste.explanation)}</span></div>
+        <div class="taste-stat-grid">
+          ${tasteRows("Genres", taste.genres)}
+          ${tasteRows("Themes", taste.themes)}
+          ${tasteRows("Decades", taste.decades)}
+          ${tasteRows("Directors", taste.directors)}
+          ${tasteRows("Languages", taste.languages)}
+          ${tasteRows("Runtime", taste.runtimes)}
+        </div>
+      </section>` : "";
+    const facts = taste.fun_facts || {};
     profileStats.innerHTML = [
       value("Rated films", stats.rated_films),
       value("Average rating", stats.average_rating?.toFixed(2)),
@@ -504,11 +536,18 @@ async function showProfileStats() {
       value("Rewatches", stats.rewatches),
       value("Mapped", stats.mapped_films),
       value("Needs mapping", stats.pending_films),
+      value("Rating spread", facts.rating_spread == null ? null : `${facts.rating_spread.toFixed(2)} ★`),
+      value("Five-star films", facts.five_star_films),
+      value("2 stars or lower", facts.two_stars_or_lower),
+      value("Genres explored", facts.genres_explored),
+      value("Decades explored", facts.decades_explored),
+      value("Languages explored", facts.languages_explored),
       stats.rewatched_titles?.length
         ? `<div class="rewatch-audit"><span><b>Rewatches counted from Letterboxd diary</b></span>${stats.rewatched_titles.map((item) => `<span>${escapeHtml(item.title)} · <b>${item.count}</b></span>`).join("")}</div>`
         : `<div class="rewatch-audit"><span>No diary entries were marked as rewatches.</span></div>`,
       `<div class="rating-distribution"><span><b>Rating distribution</b></span>${distribution || "No ratings"}</div>`,
       surprises,
+      tasteBreakdown,
     ].join("");
     profileStats.hidden = false;
   } catch (error) {
@@ -624,8 +663,12 @@ async function exportProfile() {
 function chooseManualMovie(movie) {
   selectedManualMovie = movie;
   selectedManualMovieLabel.textContent = `${movie.title}${movie.year ? ` (${movie.year})` : ""}`;
+  manualMovieRatingInput.value = movie.current_rating?.toString() || "3.5";
+  manualMovieReviewInput.value = movie.current_review_text || "";
   manualRatingFields.hidden = false;
-  manualRatingStatus.textContent = "Movie selected. Choose a rating and optionally add a review.";
+  manualRatingStatus.textContent = movie.current_rating
+    ? `Existing ${movie.current_rating.toFixed(1)}-star rating loaded. Saving will replace it and date the entry today.`
+    : "Movie selected. Saving will date this rating today; a written review is optional.";
 }
 
 async function findManualMovie() {
@@ -639,7 +682,7 @@ async function findManualMovie() {
   manualRatingStatus.textContent = "Finding the exact TMDB title…";
   manualMovieResults.innerHTML = "";
   try {
-    const params = new URLSearchParams({ q: query });
+    const params = new URLSearchParams({ q: query, user });
     if (manualMovieYearInput.value) params.set("year", manualMovieYearInput.value);
     const response = await fetch(`/movies/rating-search?${params}`);
     const result = await responseJson(response);
@@ -689,7 +732,7 @@ async function saveManualRating() {
     await loadProfiles(user);
     await loadRecommendations();
     manualRatingStatus.textContent = result.ranking_updated
-      ? `${savedTitle} was saved at ${savedRating.toFixed(1)} stars. Recommendations and personalized weights were updated.`
+      ? `${savedTitle} was saved at ${savedRating.toFixed(1)} stars with today's date. Recommendations and personalized weights were updated.`
       : result.ranking_warning;
   } catch (error) {
     manualRatingStatus.textContent = error.message;
@@ -1002,6 +1045,15 @@ profileSelect.addEventListener("change", () => {
   syncProfileEditor();
   loadRecommendations();
 });
+manageProfileSelect.addEventListener("change", () => {
+  user = manageProfileSelect.value;
+  profileSelect.value = user;
+  document.body.dataset.user = user;
+  localStorage.setItem("movie-compass-profile", user);
+  updateProfileSummary();
+  syncProfileEditor();
+  loadRecommendations();
+});
 viewTabs.forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
 movieQueryInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") searchMovieScores();
@@ -1018,4 +1070,4 @@ Promise.all([loadCatalogStatus(), loadProfiles(preferredProfile)])
   .catch((error) => {
     list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
   });
-switchView(location.hash === "#movie-night" ? "group" : "personal");
+switchView(location.hash === "#movie-night" ? "group" : location.hash === "#profiles" ? "profiles" : "personal");

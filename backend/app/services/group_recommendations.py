@@ -543,7 +543,8 @@ def generate_group_recommendations(
         if len(lowest) >= bottom_limit:
             break
     most_divisive = []
-    for row in _per_person_divisive_rows(rows, normalized):
+    unwatched_split_rows = [row for row in rows if not row["watched_by"]]
+    for row in _per_person_divisive_rows(unwatched_split_rows, normalized):
         divisive = dict(row)
         divisive["rank"] = len(most_divisive) + 1
         divisive["group_reason"] = _featured_divergence_reason(
