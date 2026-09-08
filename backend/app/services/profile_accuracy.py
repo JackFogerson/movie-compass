@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from math import sqrt
+from math import isfinite, sqrt
 from pathlib import Path
 from random import Random
 from statistics import mean
@@ -29,6 +29,14 @@ def _calibration_band(prediction: float) -> str:
     if prediction < 4.2:
         return "3.5–4.1"
     return "4.2+"
+
+
+def _year_or_none(value: object) -> int | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(numeric) if isfinite(numeric) else None
 
 
 def _tmdb_heldout_evaluations(
@@ -64,6 +72,7 @@ def _tmdb_heldout_evaluations(
             )
             rows.append(
                 {
+                    "tmdb_id": tmdb_id,
                     "actual": ratings[tmdb_id],
                     "metadata": content[tmdb_id],
                     "public_prior": prior,
@@ -72,6 +81,50 @@ def _tmdb_heldout_evaluations(
             )
         evaluations.append({"errors": rows})
     return evaluations, len(ids)
+
+
+def _rating_surprises(
+    errors: list[dict],
+    *,
+    identifier: str,
+    titles: dict[int, dict],
+) -> dict[str, dict] | None:
+    """Summarize held-out predictions by movie without training on that rating."""
+    grouped: dict[int, dict[str, list[float]]] = {}
+    for row in errors:
+        raw_id = row.get(identifier)
+        if raw_id is None:
+            continue
+        movie_id = int(raw_id)
+        values = grouped.setdefault(movie_id, {"actual": [], "expected": []})
+        values["actual"].append(float(row["actual"]))
+        values["expected"].append(float(row["hybrid"]))
+    comparisons = []
+    for movie_id, values in grouped.items():
+        actual = mean(values["actual"])
+        expected = mean(values["expected"])
+        identity = titles.get(movie_id, {})
+        comparisons.append(
+            {
+                "id": movie_id,
+                "title": identity.get("title") or f"Movie {movie_id}",
+                "year": identity.get("year"),
+                "actual_rating": round(actual, 2),
+                "expected_rating": round(expected, 2),
+                "difference": round(actual - expected, 2),
+                "held_out_tests": len(values["expected"]),
+            }
+        )
+    if not comparisons:
+        return None
+    return {
+        "highest_actual_minus_expected": max(
+            comparisons, key=lambda item: (item["difference"], item["actual_rating"])
+        ),
+        "lowest_actual_minus_expected": min(
+            comparisons, key=lambda item: (item["difference"], item["actual_rating"])
+        ),
+    }
 
 
 def profile_accuracy(artifact_dir: Path, user: str) -> dict:
@@ -134,6 +187,16 @@ def profile_accuracy(artifact_dir: Path, user: str) -> dict:
         ]
         linked_count = len(personal)
         method = "Five repeated 80/20 held-out tests of the full hybrid model"
+        title_lookup = {
+            int(row.movieId): {
+                "title": getattr(row, "clean_title", None) or getattr(row, "title", None),
+                "year": _year_or_none(getattr(row, "year", None)),
+            }
+            for row in catalog.itertuples(index=False)
+        }
+        surprises = _rating_surprises(
+            errors, identifier="movie_id", titles=title_lookup
+        )
     else:
         raw_evaluations, linked_count = _tmdb_heldout_evaluations(
             tmdb_personal, weight_policy["cold_start_weights"]
@@ -150,6 +213,20 @@ def profile_accuracy(artifact_dir: Path, user: str) -> dict:
                 }
             )
         method = "Five repeated 80/20 held-out tests of the TMDB metadata model"
+        title_lookup = {
+            tmdb_id: {
+                "title": item.get("title") or item.get("name"),
+                "year": (
+                    int(str(item.get("release_date"))[:4])
+                    if str(item.get("release_date") or "")[:4].isdigit()
+                    else None
+                ),
+            }
+            for tmdb_id, item in details_by_id.items()
+        }
+        surprises = _rating_surprises(
+            errors, identifier="tmdb_id", titles=title_lookup
+        )
     signed_errors = [float(row["hybrid"]) - float(row["actual"]) for row in errors]
     bias = mean(signed_errors)
     bands: dict[str, list[tuple[float, float]]] = {}
@@ -187,6 +264,7 @@ def profile_accuracy(artifact_dir: Path, user: str) -> dict:
         ),
         "models": comparisons,
         "calibration": calibration,
+        "rating_surprises": surprises,
         "personalized_weights": weight_policy,
     }
     with _CACHE_LOCK:

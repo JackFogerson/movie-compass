@@ -469,15 +469,32 @@ async function showProfileStats() {
   showProfileStatsButton.disabled = true;
   showProfileStatsButton.textContent = "Loading…";
   try {
-    const response = await fetch(`/profiles/${encodeURIComponent(user)}/stats`);
+    const [response, accuracyResponse] = await Promise.all([
+      fetch(`/profiles/${encodeURIComponent(user)}/stats`),
+      fetch(`/profiles/${encodeURIComponent(user)}/accuracy`),
+    ]);
     const stats = await responseJson(response);
     if (!response.ok) throw new Error(stats.detail || "Profile statistics could not be loaded");
+    const accuracy = await responseJson(accuracyResponse);
     const value = (label, number) => `
       <div class="profile-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(number ?? "—")}</strong></div>`;
     const distribution = Object.entries(stats.rating_distribution)
       .filter(([, count]) => count)
       .map(([rating, count]) => `<span>${rating} ★ · <b>${count}</b></span>`)
       .join("");
+    const surprise = (label, item) => item ? `
+      <div class="prediction-surprise">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(item.title)}${item.year ? ` (${item.year})` : ""}</strong>
+        <small>Rated ${item.actual_rating.toFixed(1)} ★ · expected ${item.expected_rating.toFixed(1)} ★ · ${item.difference >= 0 ? "+" : ""}${item.difference.toFixed(1)} ★</small>
+      </div>` : "";
+    const surprises = accuracyResponse.ok && accuracy.rating_surprises
+      ? `<section class="prediction-surprises">
+          <div><strong>Rated movies vs expected</strong><span>These are honest held-out predictions: the movie's rating was hidden while the model made its estimate.</span></div>
+          ${surprise("Highest actual rating versus expected", accuracy.rating_surprises.highest_actual_minus_expected)}
+          ${surprise("Lowest actual rating versus expected", accuracy.rating_surprises.lowest_actual_minus_expected)}
+        </section>`
+      : `<section class="prediction-surprises"><div><strong>Rated movies vs expected</strong><span>${escapeHtml(accuracy.detail || "At least ten model-linked ratings are needed for an honest held-out comparison.")}</span></div></section>`;
     profileStats.innerHTML = [
       value("Rated films", stats.rated_films),
       value("Average rating", stats.average_rating?.toFixed(2)),
@@ -491,6 +508,7 @@ async function showProfileStats() {
         ? `<div class="rewatch-audit"><span><b>Rewatches counted from Letterboxd diary</b></span>${stats.rewatched_titles.map((item) => `<span>${escapeHtml(item.title)} · <b>${item.count}</b></span>`).join("")}</div>`
         : `<div class="rewatch-audit"><span>No diary entries were marked as rewatches.</span></div>`,
       `<div class="rating-distribution"><span><b>Rating distribution</b></span>${distribution || "No ratings"}</div>`,
+      surprises,
     ].join("");
     profileStats.hidden = false;
   } catch (error) {
@@ -804,8 +822,13 @@ async function buildGroupRecommendations() {
     });
     const result = await responseJson(response);
     if (!response.ok) throw new Error(result.detail || "Group ranking failed");
+    const screened = Number(result.catalog_candidates_screened || 0);
+    const screenMessage = screened
+      ? `Each profile screened ${screened.toLocaleString()} movies matching these filters. `
+      : "Each profile screened the available catalog. ";
     groupStatus.textContent =
-      `${result.eligible_for_everyone.toLocaleString()} shared candidates were eligible for everyone. ` +
+      screenMessage +
+      `${result.candidate_union.toLocaleString()} strongest and weakest finalists across the profiles were compared head-to-head; ${result.eligible_for_everyone.toLocaleString()} had a usable score for everyone. ` +
       `Ranked in ${((performance.now() - startedAt) / 1000).toFixed(1)} seconds. ` +
       "The group score rewards a strong average while protecting the least enthusiastic person." +
       (result.include_watched

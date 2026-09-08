@@ -344,7 +344,7 @@ def generate_group_recommendations(
     title_query: str | None = None,
     candidate_tmdb_ids: str | None = None,
     include_watched: bool = False,
-    shortlist_per_user: int = 200,
+    shortlist_per_user: int = 500,
     bottom_limit: int = 5,
     divisive_limit: int = 5,
 ) -> dict:
@@ -382,6 +382,12 @@ def generate_group_recommendations(
     with ThreadPoolExecutor(max_workers=len(normalized)) as executor:
         initial_reports = dict(executor.map(initial_score, normalized))
 
+    catalog_screened_by_profile = {
+        user: int(report.get("candidate_universe", 0))
+        for user, report in initial_reports.items()
+    }
+    catalog_candidates_screened = max(catalog_screened_by_profile.values(), default=0)
+
     candidate_ids: set[int] = set()
     for shortlist in initial_reports.values():
         candidate_ids.update(int(item["tmdb_id"]) for item in shortlist["recommendations"])
@@ -392,6 +398,8 @@ def generate_group_recommendations(
         return {
             "generated_at": datetime.now(UTC).isoformat(),
             "users": normalized,
+            "catalog_candidates_screened": catalog_candidates_screened,
+            "catalog_screened_by_profile": catalog_screened_by_profile,
             "candidate_union": 0,
             "eligible_for_everyone": 0,
             "recommendations": [],
@@ -548,6 +556,8 @@ def generate_group_recommendations(
         "generated_at": datetime.now(UTC).isoformat(),
         "users": normalized,
         "strategy": "balanced_average_and_minimum",
+        "catalog_candidates_screened": catalog_candidates_screened,
+        "catalog_screened_by_profile": catalog_screened_by_profile,
         "candidate_union": len(candidate_ids),
         "eligible_for_everyone": len(rows),
         "scoring_passes": 1 if used_shared_shortlist else 2,

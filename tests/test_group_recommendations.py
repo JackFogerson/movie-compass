@@ -54,6 +54,30 @@ def test_group_ranking_shows_every_person_and_protects_low_score(
     assert "bob's biggest enthusiast split" in report["most_divisive"][1]["group_reason"]
 
 
+def test_group_reports_full_catalog_scan_separately_from_finalists(monkeypatch) -> None:
+    def fake_generate(_artifact, *, user, candidate_tmdb_ids=None, **_kwargs):
+        if candidate_tmdb_ids is None:
+            return {
+                "candidate_universe": 87_432,
+                "recommendations": [_movie(10 if user == "alice" else 20, 4.2, user)],
+            }
+        return {
+            "recommendations": [
+                _movie(10, 4.2 if user == "alice" else 3.8, user),
+                _movie(20, 3.7 if user == "alice" else 4.3, user),
+            ]
+        }
+
+    monkeypatch.setattr(service, "generate_recommendations", fake_generate)
+    report = service.generate_group_recommendations(
+        Path("coverage-artifact"), ["alice", "bob"], limit=2
+    )
+
+    assert report["catalog_candidates_screened"] == 87_432
+    assert report["candidate_union"] == 2
+    assert report["eligible_for_everyone"] == 2
+
+
 def test_group_bottom_five_uses_cautious_explanation(monkeypatch) -> None:
     def fake_generate(_artifact, *, user, candidate_tmdb_ids=None, **_kwargs):
         movies = [
