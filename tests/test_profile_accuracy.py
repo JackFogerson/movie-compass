@@ -31,3 +31,11 @@ def test_rating_surprises_aggregate_only_held_out_predictions() -> None:
     }
     assert low["title"] == "Disappointment"
     assert low["difference"] == -2.5
+    assert [item["title"] for item in result["highest_actual_minus_expected_top3"]] == [
+        "Pleasant Surprise",
+        "Disappointment",
+    ]
+    assert [item["title"] for item in result["lowest_actual_minus_expected_top3"]] == [
+        "Disappointment",
+        "Pleasant Surprise",
+    ]

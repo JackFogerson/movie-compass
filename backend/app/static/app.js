@@ -495,17 +495,16 @@ async function showProfileStats() {
       .filter(([, count]) => count)
       .map(([rating, count]) => `<span>${rating} ★ · <b>${count}</b></span>`)
       .join("");
-    const surprise = (label, item) => item ? `
-      <div class="prediction-surprise">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(item.title)}${item.year ? ` (${item.year})` : ""}</strong>
-        <small>Rated ${item.actual_rating.toFixed(1)} ★ · expected ${item.expected_rating.toFixed(1)} ★ · ${item.difference >= 0 ? "+" : ""}${item.difference.toFixed(1)} ★</small>
+    const surpriseList = (label, items) => items?.length ? `
+      <div class="prediction-surprise-list">
+        <strong>${escapeHtml(label)}</strong>
+        ${items.map((item, index) => `<div class="prediction-surprise-row"><span>${index + 1}. ${escapeHtml(item.title)}${item.year ? ` (${item.year})` : ""}</span><small>Rated ${item.actual_rating.toFixed(1)} ★ · expected ${item.expected_rating.toFixed(1)} ★ · <b>${item.difference >= 0 ? "+" : ""}${item.difference.toFixed(1)} ★</b></small></div>`).join("")}
       </div>` : "";
     const surprises = accuracyResponse.ok && accuracy.rating_surprises
       ? `<section class="prediction-surprises">
           <div><strong>Rated movies vs expected</strong><span>These are honest held-out predictions: the movie's rating was hidden while the model made its estimate.</span></div>
-          ${surprise("Highest actual rating versus expected", accuracy.rating_surprises.highest_actual_minus_expected)}
-          ${surprise("Lowest actual rating versus expected", accuracy.rating_surprises.lowest_actual_minus_expected)}
+          ${surpriseList("Three highest versus expected", accuracy.rating_surprises.highest_actual_minus_expected_top3 || [accuracy.rating_surprises.highest_actual_minus_expected])}
+          ${surpriseList("Three lowest versus expected", accuracy.rating_surprises.lowest_actual_minus_expected_top3 || [accuracy.rating_surprises.lowest_actual_minus_expected])}
         </section>`
       : `<section class="prediction-surprises"><div><strong>Rated movies vs expected</strong><span>${escapeHtml(accuracy.detail || "At least ten model-linked ratings are needed for an honest held-out comparison.")}</span></div></section>`;
     const taste = stats.taste_breakdown || {};
@@ -522,8 +521,10 @@ async function showProfileStats() {
           ${tasteRows("Themes", taste.themes)}
           ${tasteRows("Decades", taste.decades)}
           ${tasteRows("Directors", taste.directors)}
+          ${tasteRows("Actors", taste.actors)}
           ${tasteRows("Languages", taste.languages)}
           ${tasteRows("Runtime", taste.runtimes)}
+          ${tasteRows("Movie popularity", taste.popularity)}
         </div>
       </section>` : "";
     const facts = taste.fun_facts || {};

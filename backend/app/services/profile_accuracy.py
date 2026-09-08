@@ -117,13 +117,19 @@ def _rating_surprises(
         )
     if not comparisons:
         return None
+    highest = sorted(
+        comparisons,
+        key=lambda item: (item["difference"], item["actual_rating"]),
+        reverse=True,
+    )[:3]
+    lowest = sorted(
+        comparisons, key=lambda item: (item["difference"], item["actual_rating"])
+    )[:3]
     return {
-        "highest_actual_minus_expected": max(
-            comparisons, key=lambda item: (item["difference"], item["actual_rating"])
-        ),
-        "lowest_actual_minus_expected": min(
-            comparisons, key=lambda item: (item["difference"], item["actual_rating"])
-        ),
+        "highest_actual_minus_expected": highest[0],
+        "lowest_actual_minus_expected": lowest[0],
+        "highest_actual_minus_expected_top3": highest,
+        "lowest_actual_minus_expected_top3": lowest,
     }
 
 

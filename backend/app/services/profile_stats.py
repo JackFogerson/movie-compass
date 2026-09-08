@@ -4,6 +4,8 @@ from collections import defaultdict
 from math import sqrt
 from statistics import mean
 
+from recommendation.ranking.current_catalog import classify_popularity
+
 LANGUAGE_NAMES = {
     "en": "English-language",
     "es": "Spanish-language",
@@ -15,6 +17,13 @@ LANGUAGE_NAMES = {
     "zh": "Chinese-language",
     "hi": "Hindi-language",
     "pt": "Portuguese-language",
+}
+POPULARITY_NAMES = {
+    "blockbuster": "Blockbusters",
+    "popular": "Popular releases",
+    "cult_classic": "Cult classics",
+    "under_the_radar": "Under the radar",
+    "unknown": "Unknown or emerging",
 }
 
 
@@ -68,7 +77,16 @@ def build_taste_breakdown(
     profile_average = mean(ratings)
     categories: dict[str, dict[str, list[float]]] = {
         name: defaultdict(list)
-        for name in ("genres", "themes", "decades", "directors", "languages", "runtimes")
+        for name in (
+            "genres",
+            "themes",
+            "decades",
+            "directors",
+            "actors",
+            "languages",
+            "runtimes",
+            "popularity",
+        )
     }
     for movie in rated_movies:
         rating = float(movie["rating"])
@@ -89,6 +107,9 @@ def build_taste_breakdown(
             if isinstance(person, dict) and person.get("job") == "Director" and person.get("name")
         }:
             categories["directors"][director].append(rating)
+        cast = (details.get("credits") or {}).get("cast", [])
+        for actor in set(_named_values(cast)[:8]):
+            categories["actors"][actor].append(rating)
         language = str(details.get("original_language") or "").lower()
         if language:
             categories["languages"][LANGUAGE_NAMES.get(language, language.upper())].append(rating)
@@ -105,6 +126,9 @@ def build_taste_breakdown(
                 else "150+ minutes"
             )
             categories["runtimes"][label].append(rating)
+        vote_count = int(details.get("vote_count") or 0)
+        popularity_tier = classify_popularity(int(year) if year else None, vote_count)
+        categories["popularity"][POPULARITY_NAMES[popularity_tier]].append(rating)
 
     standard_deviation = sqrt(mean((rating - profile_average) ** 2 for rating in ratings))
     return {
@@ -117,8 +141,10 @@ def build_taste_breakdown(
         "themes": _summarize(categories["themes"], profile_average, minimum=2),
         "decades": _summarize(categories["decades"], profile_average, minimum=1),
         "directors": _summarize(categories["directors"], profile_average, minimum=2),
+        "actors": _summarize(categories["actors"], profile_average, minimum=2),
         "languages": _summarize(categories["languages"], profile_average, minimum=2),
         "runtimes": _summarize(categories["runtimes"], profile_average, minimum=2),
+        "popularity": _summarize(categories["popularity"], profile_average, minimum=2),
         "fun_facts": {
             "rating_spread": round(standard_deviation, 2),
             "five_star_films": sum(rating == 5 for rating in ratings),

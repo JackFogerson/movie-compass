@@ -12,16 +12,22 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "genres": [{"name": "Science Fiction"}],
             "keywords": {"keywords": [{"name": "space travel"}]},
             "original_language": "en",
+            "vote_count": 15_000,
+            "credits": {"cast": [{"name": "Favorite Actor"}]},
         },
         2: {
             "genres": [{"name": "Science Fiction"}],
             "keywords": {"keywords": [{"name": "space travel"}]},
             "original_language": "en",
+            "vote_count": 12_000,
+            "credits": {"cast": [{"name": "Favorite Actor"}]},
         },
         3: {
             "genres": [{"name": "Drama"}],
             "keywords": {"keywords": [{"name": "grief"}]},
             "original_language": "fr",
+            "vote_count": 30,
+            "credits": {"cast": [{"name": "Another Actor"}]},
         },
     }
 
@@ -33,4 +39,6 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
     assert result["profile_average"] == 3.33
     assert science_fiction["observed_average"] == 4.5
     assert 3.33 < science_fiction["expected_rating"] < 4.5
+    assert result["actors"][0]["label"] == "Favorite Actor"
+    assert result["popularity"][0]["label"] == "Blockbusters"
     assert result["fun_facts"]["decades_explored"] == 2
