@@ -146,6 +146,9 @@ h1 {
 .import-drawer[open] > summary, .profile-drawer[open] > summary { width: fit-content; margin-left: auto; }
 .import-form { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 12px; align-items: end; margin-top: 14px; padding-top: 15px; border-top: 1px solid var(--line); }
 .profile-editor-form { display: grid; grid-template-columns: 1fr 1fr repeat(4, auto); gap: 12px; align-items: end; margin-top: 14px; padding-top: 15px; border-top: 1px solid var(--line); }
+.stats-filter { display: grid; grid-template-columns: 1fr 170px 170px auto; gap: 12px; align-items: end; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.stats-filter strong, .stats-filter small { display: block; }
+.stats-filter small { max-width: 570px; margin-top: 4px; color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .profile-update-form { display: grid; grid-template-columns: 1fr minmax(280px, 1fr) auto; gap: 12px; align-items: end; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
 .profile-update-form strong, .profile-update-form small { display: block; }
 .profile-update-form small { margin-top: 4px; color: var(--muted); font-size: .72rem; line-height: 1.4; }
@@ -166,6 +169,13 @@ h1 {
 .profile-stat { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #0b1014; }
 .profile-stat span { display: block; color: var(--muted); font-size: .68rem; }
 .profile-stat strong { display: block; margin-top: 4px; color: var(--text); font-size: 1rem; }
+.stats-scope { grid-column: 1 / -1; padding: 11px 12px; border-left: 3px solid var(--gold-dark); background: #0b1014; }
+.stats-scope strong, .stats-scope span { display: block; }
+.stats-scope span { margin-top: 4px; color: var(--muted); font-size: .7rem; line-height: 1.45; }
+.signal-glossary { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: #0b1014; }
+.signal-glossary > strong { display: block; margin-bottom: 7px; color: var(--gold); }
+.signal-glossary p { margin: 5px 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
+.signal-glossary b { color: var(--text); }
 .rating-distribution, .rewatch-audit { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; }
 .prediction-surprises { grid-column: 1 / -1; display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 8px; }
 .prediction-surprises > div, .prediction-surprise-list { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #0b1014; }
@@ -401,7 +411,8 @@ summary { cursor: pointer; }
   .profile-bar { grid-template-columns: 1fr 1fr; }
   .import-drawer, .profile-drawer { grid-column: 1 / -1; }
   .import-drawer > summary, .profile-drawer > summary { width: 100%; }
-  .import-form, .profile-editor-form, .profile-update-form, .manual-rating-fields { grid-template-columns: 1fr 1fr; }
+  .import-form, .profile-editor-form, .profile-update-form, .manual-rating-fields, .stats-filter { grid-template-columns: 1fr 1fr; }
+  .stats-filter > div { grid-column: 1 / -1; }
   .import-form button, .profile-editor-form button { grid-column: auto; }
   .profile-update-form > div, .selected-manual-movie, .manual-review-label { grid-column: 1 / -1; }
   .profile-stats { grid-template-columns: 1fr 1fr; }
@@ -431,7 +442,8 @@ summary { cursor: pointer; }
   h1 { font-size: 2.75rem; }
   .view-tabs { grid-template-columns: 1fr; }
   .profiles-hero, .taste-stat-grid { grid-template-columns: 1fr; }
-  .profile-bar, .import-form, .profile-editor-form, .profile-update-form, .manual-rating-search, .manual-rating-fields, .danger-zone, .controls, .movie-search, .group-builder { grid-template-columns: 1fr; }
+  .profile-bar, .import-form, .profile-editor-form, .profile-update-form, .manual-rating-search, .manual-rating-fields, .stats-filter, .danger-zone, .controls, .movie-search, .group-builder { grid-template-columns: 1fr; }
+  .stats-filter > div { grid-column: auto; }
   .profile-summary, .import-drawer, .profile-drawer, .import-form button, .profile-editor-form button, .profile-update-form > div, .selected-manual-movie, .manual-review-label, .danger-zone > div, .controls button, .movie-search > div { grid-column: auto; }
   .context { display: block; }
   .catalog-range { margin-top: 9px; }

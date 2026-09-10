@@ -166,6 +166,7 @@ class RankedMovie:
     caution_matches: tuple[str, ...] = ()
     explanation: tuple[str, ...] = ()
     model_weights: dict[str, float] | None = None
+    public_rating_prior: float | None = None
 
     def to_dict(self) -> dict:
         result = asdict(self)
@@ -471,6 +472,9 @@ def rank_current_candidates(
                         "personal metadata fit": cold_metadata_weight,
                         "reliability-adjusted public rating": cold_public_weight,
                     }
+                ),
+                public_rating_prior=(
+                    None if is_linked else round(float(quality_prior[position]), 4)
                 ),
             )
         )

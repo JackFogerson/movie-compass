@@ -72,6 +72,7 @@ def test_current_ranking_includes_and_labels_tmdb_only_movies() -> None:
     assert serialized["ranking_expectation"]["evidence_level"] == "cold_start"
     assert "Horror films" in serialized["ranking_expectation"]["reason"]
     assert serialized["ranking_expectation"]["calculation"].startswith("80%")
+    assert serialized["public_rating_prior"] == 3.6429
     assert len(serialized["why_you_may_like_it"]) == 2
     assert serialized["why_you_may_not_like_it"]
 

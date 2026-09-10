@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Movie Compass</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260908-2" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260910-2" />
   </head>
   <body data-user="">
     <header class="site-header">
@@ -40,10 +40,15 @@
               <label>Profile ID<input id="profile-id" readonly /></label>
               <button id="save-profile" type="button">Save name</button>
               <button id="rebuild-profile" class="secondary-button" type="button">Rebuild ranking</button>
-              <button id="show-profile-stats" class="secondary-button" type="button">View stats</button>
               <button id="show-profile-ratings" class="secondary-button" type="button">Rating history</button>
               <button id="show-profile-accuracy" class="secondary-button" type="button">Model accuracy</button>
               <button id="export-profile" class="secondary-button" type="button">Download profile</button>
+            </div>
+            <div class="stats-filter">
+              <div><strong>Profile statistics</strong><small>Defaults to all history. Optional years refer to when the diary entry was watched or logged—not the movie's release year.</small></div>
+              <label>Diary from year<input id="stats-year-min" type="number" min="1870" max="2200" placeholder="All years" /></label>
+              <label>Diary through year<input id="stats-year-max" type="number" min="1870" max="2200" placeholder="All years" /></label>
+              <button id="show-profile-stats" class="secondary-button" type="button">View stats</button>
             </div>
             <div id="profile-stats" class="profile-stats" hidden></div>
             <div id="profile-accuracy" class="profile-accuracy" hidden></div>
@@ -202,6 +207,6 @@
     <template id="movie-card-template">
       <article class="movie-card"><div class="rank"></div><div class="poster-shell"><img class="movie-poster" loading="lazy" /></div><div class="movie-main"><div class="movie-heading"><div class="title-stack"><div class="movie-year"></div><h2 class="movie-title"></h2><div class="badges"></div></div><div class="rating-block"><span class="rating-label">EXPECTED</span><strong class="expected-rating"></strong><span class="rating-scale">/ 5</span><span class="plausible-range"></span></div></div><div class="movie-detail-grid"><div class="movie-copy"><p class="expectation-reason"></p><div class="group-scores"></div><ul class="explanations"></ul><div class="risk-explanation"><strong>Why it may not work for you</strong><ul class="cautions"></ul></div><details class="movie-metadata"><summary>Cast, director &amp; synopsis</summary><div class="metadata-copy"></div></details><details><summary>How this score was built</summary><div class="score-grid"></div></details></div><aside class="streaming-info"></aside></div></div></article>
     </template>
-    <script src="/static/app.js?v=20260908-2" defer></script>
+    <script src="/static/app.js?v=20260910-2" defer></script>
   </body>
 </html>

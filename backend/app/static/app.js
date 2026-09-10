@@ -19,6 +19,8 @@ const profileIdInput = document.querySelector("#profile-id");
 const saveProfileButton = document.querySelector("#save-profile");
 const rebuildProfileButton = document.querySelector("#rebuild-profile");
 const showProfileStatsButton = document.querySelector("#show-profile-stats");
+const statsYearMinInput = document.querySelector("#stats-year-min");
+const statsYearMaxInput = document.querySelector("#stats-year-max");
 const showProfileRatingsButton = document.querySelector("#show-profile-ratings");
 const profileStats = document.querySelector("#profile-stats");
 const ratingHistoryDialog = document.querySelector("#rating-history-dialog");
@@ -112,13 +114,17 @@ function scoreEvidence(movie) {
   const values = [
     ["Metadata fit", movie.content_score],
     ["Collaborative", movie.collaborative_score],
-    ["Popularity prior", movie.popularity_score],
+    ["MovieLens audience prior", movie.popularity_score],
+    ["TMDB public-rating prior", movie.public_rating_prior],
     ["Audience ratings", movie.audience_evidence_count?.toLocaleString()],
     ["TMDB votes", movie.tmdb_vote_count?.toLocaleString()],
   ];
   return values
     .filter(([, value]) => value !== null && value !== undefined)
-    .map(([label, value]) => `<span><b>${label}:</b> ${value}</span>`)
+    .map(([label, value], index) => {
+      const isScore = index < 4 && typeof value === "number";
+      return `<span><b>${label}:</b> ${isScore ? `${value.toFixed(2)} / 5` : value}</span>`;
+    })
     .join("");
 }
 
@@ -479,11 +485,20 @@ async function saveProfile() {
 }
 
 async function showProfileStats() {
+  const yearMin = statsYearMinInput.value ? Number(statsYearMinInput.value) : null;
+  const yearMax = statsYearMaxInput.value ? Number(statsYearMaxInput.value) : null;
+  if (yearMin && yearMax && yearMin > yearMax) {
+    profileEditorStatus.textContent = "Stats from year must not be after the through year.";
+    return;
+  }
   showProfileStatsButton.disabled = true;
   showProfileStatsButton.textContent = "Loading…";
   try {
+    const statsParams = new URLSearchParams();
+    if (yearMin) statsParams.set("watched_year_min", yearMin);
+    if (yearMax) statsParams.set("watched_year_max", yearMax);
     const [response, accuracyResponse] = await Promise.all([
-      fetch(`/profiles/${encodeURIComponent(user)}/stats`),
+      fetch(`/profiles/${encodeURIComponent(user)}/stats?${statsParams}`),
       fetch(`/profiles/${encodeURIComponent(user)}/accuracy`),
     ]);
     const stats = await responseJson(response);
@@ -528,7 +543,11 @@ async function showProfileStats() {
         </div>
       </section>` : "";
     const facts = taste.fun_facts || {};
+    const filterLabel = yearMin || yearMax
+      ? `${yearMin || "earliest"}–${yearMax || "latest"} diary entries`
+      : "All diary years";
     profileStats.innerHTML = [
+      `<div class="stats-scope"><strong>${escapeHtml(filterLabel)}</strong><span>${stats.rated_films} rating${stats.rated_films === 1 ? "" : "s"} included.${stats.undated_ratings_excluded ? ` ${stats.undated_ratings_excluded} rating${stats.undated_ratings_excluded === 1 ? "" : "s"} without a diary date excluded.` : ""} Prediction-surprise and model-accuracy results remain all-time.</span></div>`,
       value("Rated films", stats.rated_films),
       value("Average rating", stats.average_rating?.toFixed(2)),
       value("Median rating", stats.median_rating?.toFixed(2)),
@@ -608,9 +627,21 @@ async function showProfileAccuracy() {
     const coldWeightSummary = coldWeights
       ? `${Math.round(coldWeights.metadata * 100)}% metadata · ${Math.round(coldWeights.public_rating * 100)}% public-rating prior`
       : "Default new-title blend";
+    const reviewPolicy = result.review_signal_policy || {};
+    const reviewSummary = reviewPolicy.enabled
+      ? `Included at ${Number(reviewPolicy.selected_scale || 0).toFixed(2)} strength because it improved held-out accuracy.`
+      : `Weight 0 — ${reviewPolicy.reason || "review commentary has not shown reliable predictive value for this profile"}`;
     profileAccuracy.innerHTML = `
       <div class="accuracy-intro"><strong>How well does this profile predict ratings it has not trained on?</strong><span>${escapeHtml(result.method)} · ${result.linked_ratings} evaluation-ready ratings · ${escapeHtml(result.reliability)} evidence</span></div>
       <p class="weight-summary"><b>Automatically selected catalog blend:</b> ${escapeHtml(weightSummary)}<br /><b>New and unlinked titles:</b> ${escapeHtml(coldWeightSummary)}</p>
+      <div class="signal-glossary">
+        <strong>What the rating components mean</strong>
+        <p><b>Collaborative:</b> what MovieLens viewers with similar rating patterns tended to score the movie.</p>
+        <p><b>Metadata:</b> this profile's learned response to genres, themes and synopsis terms, director, cast, decade, and original language.</p>
+        <p><b>MovieLens audience prior:</b> the movie's public MovieLens average, stabilized so a tiny number of ratings cannot dominate.</p>
+        <p><b>New-title public-rating prior:</b> TMDB's public score converted to 0.5–5 and pulled toward this person's average when the vote count is small.</p>
+        <p><b>Written-review commentary:</b> ${escapeHtml(reviewSummary)}</p>
+      </div>
       <div class="accuracy-highlights">
         <div><span>Typical error</span><strong>${result.mae.toFixed(2)} ★</strong></div>
         <div><span>Within ½ star</span><strong>${result.within_half_star.toFixed(1)}%</strong></div>

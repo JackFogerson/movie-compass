@@ -54,6 +54,7 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
                 rating=4.0,
                 review_text="Rated review",
                 watched=True,
+                watched_date=date(2024, 5, 1),
                 rewatch_count=1,
                 watchlisted=False,
             )
@@ -92,6 +93,9 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
         client = TestClient(app)
         renamed = client.patch("/profiles/target", json={"display_name": "Movie Fan"})
         stats = client.get("/profiles/target/stats")
+        filtered_stats = client.get(
+            "/profiles/target/stats?watched_year_min=2025&watched_year_max=2026"
+        )
         rejected = client.request("DELETE", "/profiles/target", json={"confirmation": "wrong"})
         deleted = client.request("DELETE", "/profiles/target", json={"confirmation": "Movie Fan"})
     finally:
@@ -104,6 +108,10 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
     assert stats.json()["rated_films"] == 1
     assert stats.json()["rated_reviews"] == 1
     assert stats.json()["rewatches"] == 1
+    assert stats.json()["watched_year_filter"] == {"minimum": None, "maximum": None}
+    assert stats.json()["available_watched_years"] == {"minimum": 2024, "maximum": 2024}
+    assert filtered_stats.status_code == 200
+    assert filtered_stats.json()["rated_films"] == 0
     assert rejected.status_code == 422
     assert deleted.status_code == 200
     assert not ranking_dir.exists()

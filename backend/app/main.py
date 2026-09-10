@@ -40,7 +40,7 @@ from app.services.recommendation_reports import (
     available_recommendation_scopes,
     load_recommendation_report,
 )
-from app.services.review_policy import refresh_review_policy
+from app.services.review_policy import load_review_policy, refresh_review_policy
 from app.services.tmdb_mapping import map_pending_letterboxd, resolve_letterboxd_links
 from ingestion.letterboxd.parser import normalize_title
 from ingestion.tmdb.client import TmdbClient
@@ -309,12 +309,22 @@ def update_profile(user: str, request: ProfileUpdateRequest) -> dict:
 
 
 @app.get("/profiles/{user}/stats")
-def profile_stats(user: str) -> dict:
+def profile_stats(
+    user: str,
+    watched_year_min: int | None = Query(default=None, ge=1870, le=2200),
+    watched_year_max: int | None = Query(default=None, ge=1870, le=2200),
+) -> dict:
     """Return rating-only statistics for one imported profile."""
     from app.services.recommendation_reports import VALID_USER
 
     if not VALID_USER.fullmatch(user):
         raise HTTPException(status_code=422, detail="Invalid profile ID")
+    if (
+        watched_year_min is not None
+        and watched_year_max is not None
+        and watched_year_min > watched_year_max
+    ):
+        raise HTTPException(status_code=422, detail="From year must not exceed through year")
     with SessionLocal() as session:
         owner = session.scalar(select(User).where(User.slug == user))
         if owner is None:
@@ -327,6 +337,7 @@ def profile_stats(user: str) -> dict:
                 ImportMapping.rewatch_count,
                 ImportMapping.status,
                 ImportMapping.year,
+                ImportMapping.watched_date,
                 Movie.tmdb_id,
                 Movie.runtime,
             )
@@ -339,6 +350,15 @@ def profile_stats(user: str) -> dict:
         last_import = session.scalar(
             select(func.max(ImportRun.completed_at)).where(ImportRun.user_id == owner.id)
         )
+    all_rows = rows
+    if watched_year_min is not None or watched_year_max is not None:
+        rows = [
+            row
+            for row in all_rows
+            if row.watched_date is not None
+            and (watched_year_min is None or row.watched_date.year >= watched_year_min)
+            and (watched_year_max is None or row.watched_date.year <= watched_year_max)
+        ]
     ratings = [float(row.rating) for row in rows]
     distribution = {f"{value / 2:.1f}": 0 for value in range(1, 11)}
     for rating in ratings:
@@ -387,6 +407,23 @@ def profile_stats(user: str) -> dict:
         ],
         "rating_distribution": distribution,
         "taste_breakdown": taste_breakdown,
+        "watched_year_filter": {
+            "minimum": watched_year_min,
+            "maximum": watched_year_max,
+        },
+        "available_watched_years": {
+            "minimum": min(
+                (row.watched_date.year for row in all_rows if row.watched_date), default=None
+            ),
+            "maximum": max(
+                (row.watched_date.year for row in all_rows if row.watched_date), default=None
+            ),
+        },
+        "undated_ratings_excluded": (
+            sum(row.watched_date is None for row in all_rows)
+            if watched_year_min is not None or watched_year_max is not None
+            else 0
+        ),
         "last_imported_at": last_import.isoformat() if last_import else None,
     }
 
@@ -492,7 +529,11 @@ def profile_accuracy(user: str) -> dict:
     if not VALID_USER.fullmatch(user):
         raise HTTPException(status_code=422, detail="Invalid profile ID")
     try:
-        return evaluate_profile_accuracy(_latest_artifact(settings.ml_artifacts_dir), user)
+        result = evaluate_profile_accuracy(_latest_artifact(settings.ml_artifacts_dir), user)
+        result["review_signal_policy"] = load_review_policy(
+            settings.processed_data_dir / "review-policies" / f"{user}.json"
+        )
+        return result
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
