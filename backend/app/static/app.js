@@ -729,7 +729,7 @@ async function findManualMovie() {
     });
     manualMovieResults.hidden = !result.results.length;
     manualRatingStatus.textContent = result.results.length
-      ? "Choose the correct title below."
+      ? `${result.warning ? `${result.warning} ` : ""}Choose the correct title below.`
       : `No TMDB titles matched “${query}”.`;
   } catch (error) {
     manualRatingStatus.textContent = error.message;

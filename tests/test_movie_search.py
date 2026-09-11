@@ -115,3 +115,49 @@ def test_local_search_includes_cached_tmdb_only_titles(tmp_path: Path, monkeypat
     monkeypatch.setattr(main.settings, "data_dir", tmp_path / "data")
 
     assert main._local_movie_search_ids("Leviticus", 2026, 10) == [1564614]
+
+
+def test_manual_rating_search_uses_cached_result_during_tmdb_outage(monkeypatch) -> None:
+    main = import_module("app.main")
+    monkeypatch.setattr(main.settings, "tmdb_api_key", "test-key")
+    monkeypatch.setattr(
+        main,
+        "_local_movie_search_results",
+        lambda *_args: [
+            {
+                "id": 1058424,
+                "title": "Hope",
+                "release_date": "2026-07-15",
+                "poster_path": "/hope.jpg",
+            }
+        ],
+    )
+
+    class OfflineClient:
+        def __init__(self, _key):
+            pass
+
+        def search_movie(self, _query, _year):
+            from concurrent.futures import Future
+            from tenacity import RetryError
+
+            attempt = Future()
+            attempt.set_exception(OSError("offline"))
+            raise RetryError(attempt)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "TmdbClient", OfflineClient)
+
+    result = main.rating_movie_search("hope", 2026, None)
+
+    assert result["results"] == [
+        {
+            "tmdb_id": 1058424,
+            "title": "Hope",
+            "year": 2026,
+            "poster_url": "https://image.tmdb.org/t/p/w185/hope.jpg",
+        }
+    ]
+    assert "bundled catalog" in result["warning"]

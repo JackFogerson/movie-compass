@@ -164,6 +164,53 @@ def _local_movie_search_ids(query: str, year: int | None, limit: int) -> list[in
     return ordered
 
 
+def _local_movie_search_results(query: str, year: int | None, limit: int) -> list[dict]:
+    """Return display-ready matches from bundled catalog and metadata caches."""
+    ordered_ids = _local_movie_search_ids(query, year, limit)
+    if not ordered_ids:
+        return []
+    wanted_ids = set(ordered_ids)
+    by_id: dict[int, dict] = {}
+    for cache_name in ("tmdb-rich-details.json", "display-metadata.json"):
+        cache_path = settings.processed_data_dir / cache_name
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for raw_tmdb_id, details in cached.items():
+            if not str(raw_tmdb_id).isdigit() or int(raw_tmdb_id) not in wanted_ids:
+                continue
+            tmdb_id = int(raw_tmdb_id)
+            current = by_id.setdefault(tmdb_id, {})
+            current.update({key: value for key, value in details.items() if value is not None})
+
+    missing_ids = wanted_ids - set(by_id)
+    if missing_ids:
+        try:
+            artifact = _latest_artifact(settings.ml_artifacts_dir)
+            manifest = json.loads((artifact / "manifest.json").read_text(encoding="utf-8"))
+            catalog_path = artifact / manifest["files"]["catalog"]
+            opener = gzip.open if catalog_path.suffix == ".gz" else open
+            with opener(catalog_path, "rt", encoding="utf-8-sig", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    raw_tmdb_id = str(row.get("tmdb_id") or "")
+                    if not raw_tmdb_id.replace(".0", "", 1).isdigit():
+                        continue
+                    tmdb_id = int(float(raw_tmdb_id))
+                    if tmdb_id not in missing_ids:
+                        continue
+                    raw_year = str(row.get("year") or "")
+                    movie_year = int(float(raw_year)) if raw_year else None
+                    by_id[tmdb_id] = {
+                        "id": tmdb_id,
+                        "title": row.get("clean_title") or row.get("title") or "Untitled",
+                        "release_date": f"{movie_year}-01-01" if movie_year else None,
+                    }
+        except (RecommendationReportNotFound, FileNotFoundError, KeyError, json.JSONDecodeError):
+            pass
+    return [dict(by_id[tmdb_id], id=tmdb_id) for tmdb_id in ordered_ids if tmdb_id in by_id]
+
+
 def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
     """Search TMDB, falling back to the bundled catalog after network retry failures."""
     local_ids = _local_movie_search_ids(query, year, limit)
@@ -546,17 +593,41 @@ def rating_movie_search(
 ) -> dict:
     """Find exact TMDB records before adding a manual profile rating."""
     if not settings.tmdb_api_key:
-        raise HTTPException(status_code=503, detail="TMDB_API_KEY is not configured")
-    client = TmdbClient(settings.tmdb_api_key)
-    try:
-        results = client.search_movie(q, year)[:12]
-    except Exception as error:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Movie search could not reach TMDB: {type(error).__name__}",
-        ) from error
-    finally:
-        client.close()
+        results = _local_movie_search_results(q, year, 12)
+        if not results:
+            raise HTTPException(status_code=503, detail="TMDB_API_KEY is not configured")
+        search_warning = "TMDB is unavailable; showing matches from the bundled catalog."
+    else:
+        client = TmdbClient(settings.tmdb_api_key)
+        local_results = _local_movie_search_results(q, year, 12)
+        try:
+            live_results = client.search_movie(q, year)[:12]
+            results_by_id = {
+                int(item["id"]): item for item in [*local_results, *live_results] if item.get("id")
+            }
+            ordered_ids = [
+                int(item["id"]) for item in [*live_results, *local_results] if item.get("id")
+            ]
+            results = [results_by_id[item_id] for item_id in dict.fromkeys(ordered_ids)][:12]
+            search_warning = None
+        except RetryError:
+            if not local_results:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "TMDB is temporarily unreachable, and this title is not in the bundled "
+                        "offline catalog. Please retry when the connection is available."
+                    ),
+                )
+            results = local_results
+            search_warning = "TMDB is temporarily unreachable; showing bundled catalog matches."
+        except Exception as error:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Movie search could not reach TMDB: {type(error).__name__}",
+            ) from error
+        finally:
+            client.close()
     result_rows = [
             {
                 "tmdb_id": int(item["id"]),
@@ -595,7 +666,7 @@ def rating_movie_search(
                 float(interaction.rating) if interaction and interaction.rating else None
             )
             item["current_review_text"] = interaction.review_text if interaction else None
-    return {"results": result_rows}
+    return {"results": result_rows, "warning": search_warning}
 
 
 @app.put("/profiles/{user}/ratings")
