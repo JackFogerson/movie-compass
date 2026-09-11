@@ -610,7 +610,7 @@ def rating_movie_search(
             ]
             results = [results_by_id[item_id] for item_id in dict.fromkeys(ordered_ids)][:12]
             search_warning = None
-        except RetryError:
+        except RetryError as error:
             if not local_results:
                 raise HTTPException(
                     status_code=503,
@@ -618,7 +618,7 @@ def rating_movie_search(
                         "TMDB is temporarily unreachable, and this title is not in the bundled "
                         "offline catalog. Please retry when the connection is available."
                     ),
-                )
+                ) from error
             results = local_results
             search_warning = "TMDB is temporarily unreachable; showing bundled catalog matches."
         except Exception as error:
@@ -676,17 +676,6 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
 
     if not VALID_USER.fullmatch(user):
         raise HTTPException(status_code=422, detail="Invalid profile ID")
-    if not settings.tmdb_api_key:
-        raise HTTPException(status_code=503, detail="TMDB_API_KEY is not configured")
-    client = TmdbClient(settings.tmdb_api_key)
-    try:
-        details = client.movie_details(request.tmdb_id, "keywords,credits")
-    except Exception as error:
-        raise HTTPException(
-            status_code=422, detail="That TMDB movie could not be loaded"
-        ) from error
-    finally:
-        client.close()
     details_cache_path = settings.processed_data_dir / "tmdb-rich-details.json"
     try:
         cached_details = (
@@ -696,6 +685,42 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
         )
     except (OSError, json.JSONDecodeError):
         cached_details = {}
+    cached_movie = cached_details.get(str(request.tmdb_id))
+    details_warning = None
+    details = None
+    if settings.tmdb_api_key:
+        client = TmdbClient(settings.tmdb_api_key)
+        try:
+            details = client.movie_details(request.tmdb_id, "keywords,credits")
+        except RetryError as error:
+            if cached_movie and cached_movie.get("missing") is not True:
+                details = cached_movie
+                details_warning = (
+                    "TMDB was temporarily unreachable; verified bundled movie details were used."
+                )
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "TMDB is temporarily unreachable and this movie is not yet cached. "
+                        "Your rating was not changed; please retry shortly."
+                    ),
+                ) from error
+        except Exception as error:
+            raise HTTPException(
+                status_code=422, detail="TMDB rejected the selected movie details"
+            ) from error
+        finally:
+            client.close()
+    elif cached_movie and cached_movie.get("missing") is not True:
+        details = cached_movie
+        details_warning = "Verified bundled movie details were used."
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail="TMDB is unavailable and this selected movie is not in the bundled cache.",
+        )
+    assert details is not None
     cached_details[str(request.tmdb_id)] = details
     details_cache_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_cache = details_cache_path.with_suffix(".tmp")
@@ -796,6 +821,7 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
         "review_saved": review is not None,
         "ranking_updated": ranking_warning is None,
         "ranking_warning": ranking_warning,
+        "details_warning": details_warning,
         "review_signal_policy": review_policy,
     }
 

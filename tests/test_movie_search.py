@@ -139,6 +139,7 @@ def test_manual_rating_search_uses_cached_result_during_tmdb_outage(monkeypatch)
 
         def search_movie(self, _query, _year):
             from concurrent.futures import Future
+
             from tenacity import RetryError
 
             attempt = Future()

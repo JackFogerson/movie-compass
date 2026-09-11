@@ -84,13 +84,41 @@ def test_manual_rating_is_saved_and_rebuilds_profile(tmp_path, monkeypatch) -> N
             ),
         )
         search = main_module.rating_movie_search("The Matrix", 1999, "critic")
+        class OfflineTmdbClient:
+            def __init__(self, _key):
+                pass
+
+            def movie_details(self, _tmdb_id, _append):
+                from concurrent.futures import Future
+
+                from tenacity import RetryError
+
+                attempt = Future()
+                attempt.set_exception(OSError("offline"))
+                raise RetryError(attempt)
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(main_module, "TmdbClient", OfflineTmdbClient)
+        offline_result = save_manual_rating(
+            "critic",
+            ManualRatingRequest(
+                tmdb_id=603,
+                title="The Matrix",
+                year=1999,
+                rating=4.5,
+                review_text="Still exhilarating.",
+            ),
+        )
     finally:
         settings.data_dir = old_data_dir
 
     assert result["ranking_updated"] is True
     assert search["results"][0]["current_rating"] == 4.5
     assert search["results"][0]["current_review_text"] == "Still exhilarating."
-    assert rebuilt == [True]
+    assert "bundled movie details" in offline_result["details_warning"]
+    assert rebuilt == [True, True]
     with session_factory() as session:
         interaction = session.scalar(select(UserMovieInteraction))
         mapping = session.scalar(select(ImportMapping))

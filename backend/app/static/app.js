@@ -764,7 +764,7 @@ async function saveManualRating() {
     await loadProfiles(user);
     await loadRecommendations();
     manualRatingStatus.textContent = result.ranking_updated
-      ? `${savedTitle} was saved at ${savedRating.toFixed(1)} stars with today's date. Recommendations and personalized weights were updated.`
+      ? `${savedTitle} was saved at ${savedRating.toFixed(1)} stars with today's date. Recommendations and personalized weights were updated.${result.details_warning ? ` ${result.details_warning}` : ""}`
       : result.ranking_warning;
   } catch (error) {
     manualRatingStatus.textContent = error.message;
