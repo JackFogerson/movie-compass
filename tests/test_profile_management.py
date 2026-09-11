@@ -43,6 +43,20 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
         survivor = User(slug="survivor", display_name="Survivor")
         session.add_all([target, survivor])
         session.flush()
+        movie = Movie(tmdb_id=10, title="Movie One", year=2001)
+        session.add(movie)
+        session.flush()
+        session.add(
+            UserMovieInteraction(
+                user_id=target.id,
+                movie_id=movie.id,
+                rating=4.0,
+                review_text="Rated review",
+                watched=True,
+                watched_date=date(2024, 5, 1),
+                rewatch_count=1,
+            )
+        )
         session.add(
             ImportMapping(
                 user_id=target.id,
@@ -50,12 +64,29 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
                 source_key="movie-1",
                 title="Movie One",
                 year=2001,
-                status="pending",
+                movie_id=movie.id,
+                status="matched",
                 rating=4.0,
                 review_text="Rated review",
                 watched=True,
                 watched_date=date(2024, 5, 1),
                 rewatch_count=1,
+                watchlisted=False,
+            )
+        )
+        session.add(
+            ImportMapping(
+                user_id=target.id,
+                source="manual",
+                source_key="tmdb:10",
+                title="Movie One",
+                year=2001,
+                movie_id=movie.id,
+                status="matched_manual",
+                rating=4.0,
+                review_text="Rated review",
+                watched=True,
+                rewatch_count=0,
                 watchlisted=False,
             )
         )
@@ -88,6 +119,18 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
     policy = settings.processed_data_dir / "review-policies" / "target.json"
     policy.parent.mkdir(parents=True)
     policy.write_text("{}", encoding="utf-8")
+    (settings.processed_data_dir / "tmdb-rich-details.json").write_text(
+        json.dumps(
+            {
+                "10": {
+                    "title": "Movie One",
+                    "poster_path": "/movie-one.jpg",
+                    "credits": {"cast": [{"name": "Only Actor"}], "crew": []},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
 
     try:
         client = TestClient(app)
@@ -95,6 +138,10 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
         stats = client.get("/profiles/target/stats")
         filtered_stats = client.get(
             "/profiles/target/stats?watched_year_min=2025&watched_year_max=2026"
+        )
+        actor_movies = client.get(
+            "/profiles/target/stats/movies",
+            params={"category": "actors", "value": "Only Actor"},
         )
         rejected = client.request("DELETE", "/profiles/target", json={"confirmation": "wrong"})
         deleted = client.request("DELETE", "/profiles/target", json={"confirmation": "Movie Fan"})
@@ -110,8 +157,12 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
     assert stats.json()["rewatches"] == 1
     assert stats.json()["watched_year_filter"] == {"minimum": None, "maximum": None}
     assert stats.json()["available_watched_years"] == {"minimum": 2024, "maximum": 2024}
+    assert stats.json()["available_review_years"] == [2024]
     assert filtered_stats.status_code == 200
     assert filtered_stats.json()["rated_films"] == 0
+    assert actor_movies.status_code == 200
+    assert actor_movies.json()["count"] == 1
+    assert actor_movies.json()["movies"][0]["title"] == "Movie One"
     assert rejected.status_code == 422
     assert deleted.status_code == 200
     assert not ranking_dir.exists()

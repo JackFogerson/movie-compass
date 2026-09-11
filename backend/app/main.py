@@ -33,7 +33,7 @@ from app.services.letterboxd_import import import_letterboxd_archive
 from app.services.local_catalog_mapping import map_pending_from_artifact
 from app.services.profile_accuracy import profile_accuracy as evaluate_profile_accuracy
 from app.services.profile_export import build_profile_archive, restore_profile_archive
-from app.services.profile_stats import build_taste_breakdown
+from app.services.profile_stats import build_taste_breakdown, movie_category_labels
 from app.services.recommendation_reports import (
     RecommendationReportNotFound,
     _latest_artifact,
@@ -378,20 +378,19 @@ def profile_stats(
             raise HTTPException(status_code=404, detail="Profile not found")
         rows = session.execute(
             select(
-                ImportMapping.title,
-                ImportMapping.rating,
-                ImportMapping.review_text,
-                ImportMapping.rewatch_count,
-                ImportMapping.status,
-                ImportMapping.year,
-                ImportMapping.watched_date,
+                Movie.title,
+                UserMovieInteraction.rating,
+                UserMovieInteraction.review_text,
+                UserMovieInteraction.rewatch_count,
+                Movie.year,
+                UserMovieInteraction.watched_date,
                 Movie.tmdb_id,
                 Movie.runtime,
             )
-            .outerjoin(Movie, Movie.id == ImportMapping.movie_id)
+            .join(Movie, Movie.id == UserMovieInteraction.movie_id)
             .where(
-                ImportMapping.user_id == owner.id,
-                ImportMapping.rating.is_not(None),
+                UserMovieInteraction.user_id == owner.id,
+                UserMovieInteraction.rating.is_not(None),
             )
         ).all()
         last_import = session.scalar(
@@ -410,7 +409,6 @@ def profile_stats(
     distribution = {f"{value / 2:.1f}": 0 for value in range(1, 11)}
     for rating in ratings:
         distribution[f"{rating:.1f}"] = distribution.get(f"{rating:.1f}", 0) + 1
-    mapped_statuses = {"matched", "matched_local", "matched_manual"}
     details_path = settings.processed_data_dir / "tmdb-rich-details.json"
     try:
         details_raw = (
@@ -439,8 +437,8 @@ def profile_stats(
         "slug": owner.slug,
         "display_name": owner.display_name,
         "rated_films": len(ratings),
-        "mapped_films": sum(row.status in mapped_statuses for row in rows),
-        "pending_films": sum(row.status not in mapped_statuses for row in rows),
+        "mapped_films": len(rows),
+        "pending_films": 0,
         "average_rating": round(sum(ratings) / len(ratings), 2) if ratings else None,
         "median_rating": round(float(median(ratings)), 2) if ratings else None,
         "lowest_rating": min(ratings) if ratings else None,
@@ -466,12 +464,110 @@ def profile_stats(
                 (row.watched_date.year for row in all_rows if row.watched_date), default=None
             ),
         },
+        "available_review_years": sorted(
+            {
+                row.watched_date.year
+                for row in all_rows
+                if row.watched_date and str(row.review_text or "").strip()
+            },
+            reverse=True,
+        ),
         "undated_ratings_excluded": (
             sum(row.watched_date is None for row in all_rows)
             if watched_year_min is not None or watched_year_max is not None
             else 0
         ),
         "last_imported_at": last_import.isoformat() if last_import else None,
+    }
+
+
+@app.get("/profiles/{user}/stats/movies")
+def profile_stat_movies(
+    user: str,
+    category: str = Query(max_length=30),
+    value: str = Query(min_length=1, max_length=200),
+    watched_year: int | None = Query(default=None, ge=1870, le=2200),
+) -> dict:
+    """List the unique rated films contributing to one taste-stat row."""
+    from app.services.recommendation_reports import VALID_USER
+
+    valid_categories = {
+        "genres",
+        "themes",
+        "decades",
+        "directors",
+        "actors",
+        "languages",
+        "runtimes",
+        "popularity",
+    }
+    if not VALID_USER.fullmatch(user):
+        raise HTTPException(status_code=422, detail="Invalid profile ID")
+    if category not in valid_categories:
+        raise HTTPException(status_code=422, detail="Invalid statistics category")
+    with SessionLocal() as session:
+        owner = session.scalar(select(User).where(User.slug == user))
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        rows = session.execute(
+            select(Movie, UserMovieInteraction)
+            .join(UserMovieInteraction, UserMovieInteraction.movie_id == Movie.id)
+            .where(
+                UserMovieInteraction.user_id == owner.id,
+                UserMovieInteraction.rating.is_not(None),
+            )
+            .order_by(
+                UserMovieInteraction.watched_date.desc(),
+                UserMovieInteraction.rating.desc(),
+                Movie.title,
+            )
+        ).all()
+    details_path = settings.processed_data_dir / "tmdb-rich-details.json"
+    try:
+        details_raw = json.loads(details_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        details_raw = {}
+    matches = []
+    for movie, interaction in rows:
+        if watched_year is not None and (
+            interaction.watched_date is None
+            or interaction.watched_date.year != watched_year
+        ):
+            continue
+        details = details_raw.get(str(movie.tmdb_id), {}) if movie.tmdb_id else {}
+        labels = movie_category_labels(
+            {"year": movie.year, "runtime": movie.runtime}, details
+        ).get(category, ())
+        if value not in labels:
+            continue
+        poster_path = movie.poster_path or details.get("poster_path")
+        matches.append(
+            {
+                "tmdb_id": movie.tmdb_id,
+                "title": movie.title,
+                "year": movie.year,
+                "rating": float(interaction.rating),
+                "watched_date": (
+                    interaction.watched_date.isoformat()
+                    if interaction.watched_date
+                    else None
+                ),
+                "review_text": interaction.review_text,
+                "poster_url": (
+                    f"https://image.tmdb.org/t/p/w185{poster_path}"
+                    if poster_path
+                    else None
+                ),
+            }
+        )
+    return {
+        "user": user,
+        "display_name": owner.display_name,
+        "category": category,
+        "value": value,
+        "watched_year": watched_year,
+        "count": len(matches),
+        "movies": matches,
     }
 
 

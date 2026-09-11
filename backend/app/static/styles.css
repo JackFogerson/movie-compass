@@ -146,7 +146,7 @@ h1 {
 .import-drawer[open] > summary, .profile-drawer[open] > summary { width: fit-content; margin-left: auto; }
 .import-form { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 12px; align-items: end; margin-top: 14px; padding-top: 15px; border-top: 1px solid var(--line); }
 .profile-editor-form { display: grid; grid-template-columns: 1fr 1fr repeat(4, auto); gap: 12px; align-items: end; margin-top: 14px; padding-top: 15px; border-top: 1px solid var(--line); }
-.stats-filter { display: grid; grid-template-columns: 1fr 170px 170px auto; gap: 12px; align-items: end; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.stats-filter { display: grid; grid-template-columns: 1fr 180px auto; gap: 12px; align-items: end; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
 .stats-filter strong, .stats-filter small { display: block; }
 .stats-filter small { max-width: 570px; margin-top: 4px; color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .profile-update-form { display: grid; grid-template-columns: 1fr minmax(280px, 1fr) auto; gap: 12px; align-items: end; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
@@ -191,6 +191,8 @@ h1 {
 .taste-stat-card { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }
 .taste-stat-card h3 { margin: 0 0 8px; color: var(--gold); font-size: .78rem; letter-spacing: .04em; }
 .taste-stat-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 7px 0; border-top: 1px solid rgba(255, 255, 255, .055); }
+.taste-stat-row[type="button"] { width: 100%; border-right: 0; border-bottom: 0; border-left: 0; border-radius: 0; background: transparent; text-align: left; text-transform: none; letter-spacing: 0; }
+.taste-stat-row[type="button"]:hover, .taste-stat-row[type="button"]:focus-visible { color: var(--text); background: rgba(236, 183, 70, .07); transform: none; }
 .taste-stat-row > span, .taste-stat-row > strong { color: var(--text); font-size: .74rem; }
 .taste-stat-row > strong { text-align: right; }
 .taste-stat-row small { display: block; margin-top: 2px; color: var(--muted); font-size: .63rem; font-weight: 400; }

@@ -19,8 +19,7 @@ const profileIdInput = document.querySelector("#profile-id");
 const saveProfileButton = document.querySelector("#save-profile");
 const rebuildProfileButton = document.querySelector("#rebuild-profile");
 const showProfileStatsButton = document.querySelector("#show-profile-stats");
-const statsYearMinInput = document.querySelector("#stats-year-min");
-const statsYearMaxInput = document.querySelector("#stats-year-max");
+const statsYearInput = document.querySelector("#stats-year");
 const showProfileRatingsButton = document.querySelector("#show-profile-ratings");
 const profileStats = document.querySelector("#profile-stats");
 const ratingHistoryDialog = document.querySelector("#rating-history-dialog");
@@ -28,6 +27,11 @@ const ratingHistoryTitle = document.querySelector("#rating-history-title");
 const ratingHistorySummary = document.querySelector("#rating-history-summary");
 const ratingHistoryList = document.querySelector("#rating-history-list");
 const closeRatingHistoryButton = document.querySelector("#close-rating-history");
+const statMoviesDialog = document.querySelector("#stat-movies-dialog");
+const statMoviesTitle = document.querySelector("#stat-movies-title");
+const statMoviesSummary = document.querySelector("#stat-movies-summary");
+const statMoviesList = document.querySelector("#stat-movies-list");
+const closeStatMoviesButton = document.querySelector("#close-stat-movies");
 const showProfileAccuracyButton = document.querySelector("#show-profile-accuracy");
 const exportProfileButton = document.querySelector("#export-profile");
 const profileAccuracy = document.querySelector("#profile-accuracy");
@@ -360,6 +364,7 @@ function syncProfileEditor() {
   updateProfileStatus.textContent = "";
   profileStats.hidden = true;
   profileStats.innerHTML = "";
+  statsYearInput.innerHTML = '<option value="">All years</option>';
   profileAccuracy.hidden = true;
   profileAccuracy.innerHTML = "";
   selectedManualMovie = null;
@@ -485,24 +490,25 @@ async function saveProfile() {
 }
 
 async function showProfileStats() {
-  const yearMin = statsYearMinInput.value ? Number(statsYearMinInput.value) : null;
-  const yearMax = statsYearMaxInput.value ? Number(statsYearMaxInput.value) : null;
-  if (yearMin && yearMax && yearMin > yearMax) {
-    profileEditorStatus.textContent = "Stats from year must not be after the through year.";
-    return;
-  }
+  const watchedYear = statsYearInput.value ? Number(statsYearInput.value) : null;
   showProfileStatsButton.disabled = true;
   showProfileStatsButton.textContent = "Loading…";
   try {
     const statsParams = new URLSearchParams();
-    if (yearMin) statsParams.set("watched_year_min", yearMin);
-    if (yearMax) statsParams.set("watched_year_max", yearMax);
+    if (watchedYear) {
+      statsParams.set("watched_year_min", watchedYear);
+      statsParams.set("watched_year_max", watchedYear);
+    }
     const [response, accuracyResponse] = await Promise.all([
       fetch(`/profiles/${encodeURIComponent(user)}/stats?${statsParams}`),
       fetch(`/profiles/${encodeURIComponent(user)}/accuracy`),
     ]);
     const stats = await responseJson(response);
     if (!response.ok) throw new Error(stats.detail || "Profile statistics could not be loaded");
+    const selectedStatsYear = statsYearInput.value;
+    statsYearInput.innerHTML = '<option value="">All years</option>' +
+      (stats.available_review_years || []).map((year) => `<option value="${year}">${year}</option>`).join("");
+    statsYearInput.value = selectedStatsYear;
     const accuracy = await responseJson(accuracyResponse);
     const value = (label, number) => `
       <div class="profile-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(number ?? "—")}</strong></div>`;
@@ -523,28 +529,28 @@ async function showProfileStats() {
         </section>`
       : `<section class="prediction-surprises"><div><strong>Rated movies vs expected</strong><span>${escapeHtml(accuracy.detail || "At least ten model-linked ratings are needed for an honest held-out comparison.")}</span></div></section>`;
     const taste = stats.taste_breakdown || {};
-    const tasteRows = (heading, items) => items?.length ? `
+    const tasteRows = (heading, category, items) => items?.length ? `
       <section class="taste-stat-card">
         <h3>${escapeHtml(heading)}</h3>
-        ${items.map((item) => `<div class="taste-stat-row"><span>${escapeHtml(item.label)}<small>${item.films} rated film${item.films === 1 ? "" : "s"}</small></span><strong>${item.expected_rating.toFixed(2)} ★<small>${item.difference_from_profile >= 0 ? "+" : ""}${item.difference_from_profile.toFixed(2)} vs usual</small></strong></div>`).join("")}
+        ${items.map((item) => `<button type="button" class="taste-stat-row" data-category="${escapeHtml(category)}" data-value="${escapeHtml(item.label)}"><span>${escapeHtml(item.label)}<small>${item.films} rated film${item.films === 1 ? "" : "s"} · view movies</small></span><strong>${item.expected_rating.toFixed(2)} ★<small>${item.difference_from_profile >= 0 ? "+" : ""}${item.difference_from_profile.toFixed(2)} vs usual</small></strong></button>`).join("")}
       </section>` : "";
     const tasteBreakdown = taste.explanation ? `
       <section class="taste-breakdown">
         <div class="taste-breakdown-heading"><strong>Your taste, feature by feature</strong><span>${escapeHtml(taste.explanation)}</span></div>
         <div class="taste-stat-grid">
-          ${tasteRows("Genres", taste.genres)}
-          ${tasteRows("Themes", taste.themes)}
-          ${tasteRows("Decades", taste.decades)}
-          ${tasteRows("Directors", taste.directors)}
-          ${tasteRows("Actors", taste.actors)}
-          ${tasteRows("Languages", taste.languages)}
-          ${tasteRows("Runtime", taste.runtimes)}
-          ${tasteRows("Movie popularity", taste.popularity)}
+          ${tasteRows("Genres", "genres", taste.genres)}
+          ${tasteRows("Themes", "themes", taste.themes)}
+          ${tasteRows("Decades", "decades", taste.decades)}
+          ${tasteRows("Directors", "directors", taste.directors)}
+          ${tasteRows("Actors", "actors", taste.actors)}
+          ${tasteRows("Languages", "languages", taste.languages)}
+          ${tasteRows("Runtime", "runtimes", taste.runtimes)}
+          ${tasteRows("Movie popularity", "popularity", taste.popularity)}
         </div>
       </section>` : "";
     const facts = taste.fun_facts || {};
-    const filterLabel = yearMin || yearMax
-      ? `${yearMin || "earliest"}–${yearMax || "latest"} diary entries`
+    const filterLabel = watchedYear
+      ? `${watchedYear} diary entries`
       : "All diary years";
     profileStats.innerHTML = [
       `<div class="stats-scope"><strong>${escapeHtml(filterLabel)}</strong><span>${stats.rated_films} rating${stats.rated_films === 1 ? "" : "s"} included.${stats.undated_ratings_excluded ? ` ${stats.undated_ratings_excluded} rating${stats.undated_ratings_excluded === 1 ? "" : "s"} without a diary date excluded.` : ""} Prediction-surprise and model-accuracy results remain all-time.</span></div>`,
@@ -575,6 +581,36 @@ async function showProfileStats() {
   } finally {
     showProfileStatsButton.disabled = false;
     showProfileStatsButton.textContent = "View stats";
+  }
+}
+
+async function showStatMovies(category, value) {
+  statMoviesTitle.textContent = value;
+  statMoviesSummary.textContent = "Loading the movies behind this statistic…";
+  statMoviesList.innerHTML = "";
+  statMoviesDialog.showModal();
+  try {
+    const params = new URLSearchParams({ category, value });
+    if (statsYearInput.value) params.set("watched_year", statsYearInput.value);
+    const response = await fetch(
+      `/profiles/${encodeURIComponent(user)}/stats/movies?${params}`,
+    );
+    const result = await responseJson(response);
+    if (!response.ok) throw new Error(result.detail || "Statistic movies could not be loaded");
+    statMoviesSummary.textContent = `${result.count} unique rated movie${result.count === 1 ? "" : "s"}${result.watched_year ? ` watched in ${result.watched_year}` : " across all diary years"}.`;
+    statMoviesList.innerHTML = result.movies.length
+      ? result.movies.map((item) => `
+          <article class="rating-history-row">
+            ${item.poster_url ? `<img src="${escapeHtml(item.poster_url)}" alt="" loading="lazy" />` : '<span class="rating-history-poster-placeholder"></span>'}
+            <div class="rating-history-copy">
+              <div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.year ?? "Year unavailable")}${item.watched_date ? ` · watched ${escapeHtml(item.watched_date)}` : ""}</span></div>
+              ${item.review_text ? `<p>${escapeHtml(item.review_text)}</p>` : ""}
+            </div>
+            <div class="rating-history-score"><strong>${item.rating.toFixed(1)}</strong><span>★ / 5</span></div>
+          </article>`).join("")
+      : '<div class="empty">No rated movies match this statistic.</div>';
+  } catch (error) {
+    statMoviesSummary.textContent = error.message;
   }
 }
 
@@ -1053,10 +1089,19 @@ importButton.addEventListener("click", importProfile);
 saveProfileButton.addEventListener("click", saveProfile);
 rebuildProfileButton.addEventListener("click", rebuildProfile);
 showProfileStatsButton.addEventListener("click", showProfileStats);
+statsYearInput.addEventListener("change", showProfileStats);
+profileStats.addEventListener("click", (event) => {
+  const row = event.target.closest(".taste-stat-row");
+  if (row) showStatMovies(row.dataset.category, row.dataset.value);
+});
 showProfileRatingsButton.addEventListener("click", showProfileRatings);
 closeRatingHistoryButton.addEventListener("click", () => ratingHistoryDialog.close());
 ratingHistoryDialog.addEventListener("click", (event) => {
   if (event.target === ratingHistoryDialog) ratingHistoryDialog.close();
+});
+closeStatMoviesButton.addEventListener("click", () => statMoviesDialog.close());
+statMoviesDialog.addEventListener("click", (event) => {
+  if (event.target === statMoviesDialog) statMoviesDialog.close();
 });
 showProfileAccuracyButton.addEventListener("click", showProfileAccuracy);
 exportProfileButton.addEventListener("click", exportProfile);

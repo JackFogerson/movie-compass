@@ -68,6 +68,52 @@ def _summarize(
     return [*rows[:top_count], *rows[-bottom_count:]]
 
 
+def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ...]]:
+    """Return the exact category labels used by both stats and drill-down results."""
+    year = movie.get("year")
+    runtime = details.get("runtime") or movie.get("runtime")
+    keyword_block = details.get("keywords") or {}
+    keywords = keyword_block.get("keywords", []) if isinstance(keyword_block, dict) else []
+    crew = (details.get("credits") or {}).get("crew", [])
+    cast = (details.get("credits") or {}).get("cast", [])
+    language = str(details.get("original_language") or "").lower()
+    vote_count = int(details.get("vote_count") or 0)
+    runtime_label = None
+    if runtime:
+        runtime = int(runtime)
+        runtime_label = (
+            "Under 90 minutes"
+            if runtime < 90
+            else "90–119 minutes"
+            if runtime < 120
+            else "120–149 minutes"
+            if runtime < 150
+            else "150+ minutes"
+        )
+    return {
+        "genres": tuple(sorted(set(_named_values(details.get("genres"))))),
+        "themes": tuple(sorted({name.capitalize() for name in _named_values(keywords)[:24]})),
+        "decades": (f"{int(year) // 10 * 10}s",) if year else (),
+        "directors": tuple(
+            sorted(
+                {
+                    str(person.get("name"))
+                    for person in crew
+                    if isinstance(person, dict)
+                    and person.get("job") == "Director"
+                    and person.get("name")
+                }
+            )
+        ),
+        "actors": tuple(sorted(set(_named_values(cast)[:8]))),
+        "languages": (LANGUAGE_NAMES.get(language, language.upper()),) if language else (),
+        "runtimes": (runtime_label,) if runtime_label else (),
+        "popularity": (
+            POPULARITY_NAMES[classify_popularity(int(year) if year else None, vote_count)],
+        ),
+    }
+
+
 def build_taste_breakdown(
     rated_movies: list[dict], details_by_id: dict[int, dict]
 ) -> dict:
@@ -91,44 +137,9 @@ def build_taste_breakdown(
     for movie in rated_movies:
         rating = float(movie["rating"])
         details = details_by_id.get(int(movie["tmdb_id"]), {}) if movie.get("tmdb_id") else {}
-        for genre in set(_named_values(details.get("genres"))):
-            categories["genres"][genre].append(rating)
-        keyword_block = details.get("keywords") or {}
-        keywords = keyword_block.get("keywords", []) if isinstance(keyword_block, dict) else []
-        for theme in set(_named_values(keywords)[:24]):
-            categories["themes"][theme.capitalize()].append(rating)
-        year = movie.get("year")
-        if year:
-            categories["decades"][f"{int(year) // 10 * 10}s"].append(rating)
-        crew = (details.get("credits") or {}).get("crew", [])
-        for director in {
-            str(person.get("name"))
-            for person in crew
-            if isinstance(person, dict) and person.get("job") == "Director" and person.get("name")
-        }:
-            categories["directors"][director].append(rating)
-        cast = (details.get("credits") or {}).get("cast", [])
-        for actor in set(_named_values(cast)[:8]):
-            categories["actors"][actor].append(rating)
-        language = str(details.get("original_language") or "").lower()
-        if language:
-            categories["languages"][LANGUAGE_NAMES.get(language, language.upper())].append(rating)
-        runtime = details.get("runtime") or movie.get("runtime")
-        if runtime:
-            runtime = int(runtime)
-            label = (
-                "Under 90 minutes"
-                if runtime < 90
-                else "90–119 minutes"
-                if runtime < 120
-                else "120–149 minutes"
-                if runtime < 150
-                else "150+ minutes"
-            )
-            categories["runtimes"][label].append(rating)
-        vote_count = int(details.get("vote_count") or 0)
-        popularity_tier = classify_popularity(int(year) if year else None, vote_count)
-        categories["popularity"][POPULARITY_NAMES[popularity_tier]].append(rating)
+        for category, labels in movie_category_labels(movie, details).items():
+            for label in labels:
+                categories[category][label].append(rating)
 
     standard_deviation = sqrt(mean((rating - profile_average) ** 2 for rating in ratings))
     return {
