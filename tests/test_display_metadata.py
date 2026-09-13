@@ -61,21 +61,21 @@ def test_display_metadata_falls_back_to_tv_provider_data(monkeypatch) -> None:
                         }
                     }
                 },
+                "content_ratings": {"results": [{"iso_3166_1": "US", "rating": "TV-MA"}]},
             }
 
         def close(self) -> None:
             pass
 
     monkeypatch.setattr(display_metadata, "TmdbClient", FakeClient)
-    _, details = display_metadata._fetch_display_details(
-        "key", 331214, "Band of Brothers", 2001
-    )
+    _, details = display_metadata._fetch_display_details("key", 331214, "Band of Brothers", 2001)
 
     assert details is not None
     assert details["id"] == 4613
     assert details["media_type"] == "tv"
     assert details["runtime"] == 60
     assert details["runtime_label"] == "60 min/episode"
+    assert details["certification"] == "TV-MA"
     options, link = streaming_options(details, "US")
     assert options[0]["service"] == "Max"
     assert link == "https://example.test/tv/4613/watch"

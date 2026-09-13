@@ -4,6 +4,7 @@ from collections import defaultdict
 from math import sqrt
 from statistics import mean
 
+from app.services.certifications import UNKNOWN_CERTIFICATION, us_certification
 from recommendation.ranking.current_catalog import classify_popularity
 
 LANGUAGE_NAMES = {
@@ -111,6 +112,7 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
         "popularity": (
             POPULARITY_NAMES[classify_popularity(int(year) if year else None, vote_count)],
         ),
+        "certifications": (us_certification(details) or UNKNOWN_CERTIFICATION,),
     }
 
 
@@ -136,6 +138,7 @@ def build_taste_breakdown(
             "languages",
             "runtimes",
             "popularity",
+            "certifications",
         )
     }
     for movie in rated_movies:
@@ -146,6 +149,10 @@ def build_taste_breakdown(
                 categories[category][label].append(rating)
 
     standard_deviation = sqrt(mean((rating - profile_average) ** 2 for rating in ratings))
+    unknown_certifications = len(
+        categories["certifications"].get(UNKNOWN_CERTIFICATION, [])
+    )
+    known_certifications = len(ratings) - unknown_certifications
     repeated_minimum = 1 if include_singletons else 2
     return {
         "profile_average": round(profile_average, 2),
@@ -153,14 +160,31 @@ def build_taste_breakdown(
             "Expected ratings describe a generic movie with that trait. They blend the observed "
             "average back toward this profile's usual rating when evidence is limited."
         ),
-        "genres": _summarize(categories["genres"], profile_average, minimum=repeated_minimum, limit=limit),
-        "themes": _summarize(categories["themes"], profile_average, minimum=repeated_minimum, limit=limit),
+        "genres": _summarize(
+            categories["genres"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
+        "themes": _summarize(
+            categories["themes"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
         "decades": _summarize(categories["decades"], profile_average, minimum=1, limit=limit),
-        "directors": _summarize(categories["directors"], profile_average, minimum=repeated_minimum, limit=limit),
-        "actors": _summarize(categories["actors"], profile_average, minimum=repeated_minimum, limit=limit),
-        "languages": _summarize(categories["languages"], profile_average, minimum=repeated_minimum, limit=limit),
-        "runtimes": _summarize(categories["runtimes"], profile_average, minimum=repeated_minimum, limit=limit),
-        "popularity": _summarize(categories["popularity"], profile_average, minimum=repeated_minimum, limit=limit),
+        "directors": _summarize(
+            categories["directors"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
+        "actors": _summarize(
+            categories["actors"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
+        "languages": _summarize(
+            categories["languages"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
+        "runtimes": _summarize(
+            categories["runtimes"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
+        "popularity": _summarize(
+            categories["popularity"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
+        "certifications": _summarize(
+            categories["certifications"], profile_average, minimum=1, limit=limit
+        ),
         "fun_facts": {
             "rating_spread": round(standard_deviation, 2),
             "five_star_films": sum(rating == 5 for rating in ratings),
@@ -168,5 +192,10 @@ def build_taste_breakdown(
             "genres_explored": len(categories["genres"]),
             "decades_explored": len(categories["decades"]),
             "languages_explored": len(categories["languages"]),
+            "certification_known_films": known_certifications,
+            "certification_unknown_films": unknown_certifications,
+            "certification_coverage_percent": round(
+                known_certifications / len(ratings) * 100, 1
+            ),
         },
     }

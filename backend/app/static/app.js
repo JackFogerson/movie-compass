@@ -3,6 +3,7 @@ const yearMinInput = document.querySelector("#year-min");
 const yearMaxInput = document.querySelector("#year-max");
 const limitInput = document.querySelector("#limit");
 const popularityInput = document.querySelector("#popularity");
+const certificationInput = document.querySelector("#certification");
 const genreInput = document.querySelector("#genre");
 const runtimeInput = document.querySelector("#runtime");
 const availabilityInput = document.querySelector("#availability");
@@ -79,6 +80,7 @@ const groupYearMinInput = document.querySelector("#group-year-min");
 const groupYearMaxInput = document.querySelector("#group-year-max");
 const groupLimitInput = document.querySelector("#group-limit");
 const groupPopularityInput = document.querySelector("#group-popularity");
+const groupCertificationInput = document.querySelector("#group-certification");
 const groupGenreInput = document.querySelector("#group-genre");
 const groupRuntimeInput = document.querySelector("#group-runtime");
 const groupAvailabilityInput = document.querySelector("#group-availability");
@@ -154,8 +156,18 @@ function matchesAvailability(movie, selection) {
   return true;
 }
 
-function availabilityFiltered(movies, input, limit = null) {
-  const filtered = (movies || []).filter((movie) => matchesAvailability(movie, input.value));
+function certificationBucket(certification) {
+  const normalized = String(certification || "").trim().toUpperCase();
+  if (["G", "PG", "PG-13", "R", "NC-17"].includes(normalized)) return normalized.toLowerCase();
+  if (["NR", "UNRATED", "NOT RATED"].includes(normalized)) return "unrated";
+  return normalized ? "other" : "unknown";
+}
+
+function recommendationFiltered(movies, availability, certification, limit = null) {
+  const filtered = (movies || []).filter((movie) =>
+    matchesAvailability(movie, availability.value) &&
+    (certification.value === "all" || certificationBucket(movie.certification) === certification.value)
+  );
   return limit == null ? filtered : filtered.slice(0, limit);
 }
 
@@ -220,6 +232,7 @@ function renderMovie(movie, rankLabel = null) {
   if (movie.runtime) {
     badges.push(`<span class="badge runtime">${escapeHtml(movie.runtime_label || `${movie.runtime} min`)}</span>`);
   }
+  badges.push(`<span class="badge certification">${escapeHtml(movie.certification || "Rating unknown")}</span>`);
   (movie.moods || []).forEach((mood) => badges.push(`<span class="badge mood">${escapeHtml(mood)}</span>`));
   if (isGroup && movie.watched_by?.length) {
     badges.push(`<span class="badge rewatch">Seen by ${movie.watched_by.length}/${movie.individual_scores.length}</span>`);
@@ -299,7 +312,7 @@ function renderMetrics(report) {
 
 function requestParams() {
   const params = new URLSearchParams({
-    limit: availabilityInput.value === "all" ? limitInput.value : "100",
+    limit: availabilityInput.value === "all" && certificationInput.value === "all" ? limitInput.value : "100",
     popularity: popularityInput.value,
   });
   if (yearMinInput.value) params.set("year_min", yearMinInput.value);
@@ -323,7 +336,8 @@ function updateViewLabel(report) {
   const genreLabel = genreInput.value || "All genres";
   const runtimeLabel = runtimeInput.options[runtimeInput.selectedIndex].text;
   const availabilityLabel = availabilityInput.options[availabilityInput.selectedIndex].text;
-  label = `${label} · ${genreLabel} · ${runtimeLabel} · ${popularityLabel} · ${availabilityLabel}`;
+  const certificationLabel = certificationInput.options[certificationInput.selectedIndex].text;
+  label = `${label} · ${genreLabel} · ${runtimeLabel} · ${popularityLabel} · ${certificationLabel} · ${availabilityLabel}`;
   document.querySelector("#active-view").textContent = label;
   const range = report.available_candidate_years;
   const universe = report.candidate_universe || report.candidates_considered;
@@ -337,7 +351,7 @@ function displayReport(report) {
   updateViewLabel(report);
   renderMetrics(report);
   list.innerHTML = "";
-  const recommendations = availabilityFiltered(report.recommendations, availabilityInput, Number(limitInput.value));
+  const recommendations = recommendationFiltered(report.recommendations, availabilityInput, certificationInput, Number(limitInput.value));
   recommendations.forEach((movie) => list.append(renderMovie(movie)));
   if (!recommendations.length) {
     list.innerHTML = `<div class="empty">No recommendations match these filters. Try a broader availability, year, or genre selection.</div>`;
@@ -347,7 +361,7 @@ function displayReport(report) {
     notice.textContent = `${report.unavailable_candidate_details} stale or unavailable catalog records were skipped safely.`;
   }
   lowestList.innerHTML = "";
-  const lowestRecommendations = availabilityFiltered(report.lowest_recommendations, availabilityInput);
+  const lowestRecommendations = recommendationFiltered(report.lowest_recommendations, availabilityInput, certificationInput);
   lowestRecommendations.forEach((movie, index) => {
     lowestList.append(renderMovie(movie, `LOW ${index + 1}`));
   });
@@ -570,6 +584,7 @@ async function showProfileStats() {
           ${tasteRows("Languages", "languages", taste.languages)}
           ${tasteRows("Runtime", "runtimes", taste.runtimes)}
           ${tasteRows("Movie popularity", "popularity", taste.popularity)}
+          ${tasteRows("US content ratings", "certifications", taste.certifications)}
         </div>
       </section>` : "";
     const facts = taste.fun_facts || {};
@@ -592,6 +607,13 @@ async function showProfileStats() {
       value("Genres explored", facts.genres_explored),
       value("Decades explored", facts.decades_explored),
       value("Languages explored", facts.languages_explored),
+      value(
+        "US content ratings found",
+        facts.certification_coverage_percent == null
+          ? null
+          : `${facts.certification_known_films} films · ${facts.certification_coverage_percent}%`,
+      ),
+      value("Content rating unknown", facts.certification_unknown_films),
       stats.rewatched_titles?.length
         ? `<div class="rewatch-audit"><span><b>Rewatches counted from Letterboxd diary</b></span>${stats.rewatched_titles.map((item) => `<span>${escapeHtml(item.title)} · <b>${item.count}</b></span>`).join("")}</div>`
         : `<div class="rewatch-audit"><span>No diary entries were marked as rewatches.</span></div>`,
@@ -608,7 +630,8 @@ async function showProfileStats() {
   }
 }
 
-async function showStatMovies(category, value) {
+async function showStatMovies(category, value, { returnToCategory = false } = {}) {
+  closeStatMoviesButton.textContent = returnToCategory ? "Back" : "Close";
   statMoviesTitle.textContent = value;
   statMoviesSummary.textContent = "Loading the movies behind this statistic…";
   statMoviesList.innerHTML = "";
@@ -964,7 +987,7 @@ async function buildGroupRecommendations() {
   const [runtimeMinimum, runtimeMaximum] = runtimeBounds(groupRuntimeInput);
   const body = {
     users,
-    limit: groupAvailabilityInput.value === "all" ? Number(groupLimitInput.value) : 30,
+    limit: groupAvailabilityInput.value === "all" && groupCertificationInput.value === "all" ? Number(groupLimitInput.value) : 30,
     popularity: groupPopularityInput.value,
     genre: groupGenreInput.value || null,
     include_watched: groupIncludeWatchedInput.checked,
@@ -994,17 +1017,17 @@ async function buildGroupRecommendations() {
       (result.include_watched
         ? " Movies seen by the whole group are included."
         : " Movies everyone has already seen are hidden; partially watched choices remain eligible.");
-    const groupRecommendations = availabilityFiltered(result.recommendations, groupAvailabilityInput, Number(groupLimitInput.value));
+    const groupRecommendations = recommendationFiltered(result.recommendations, groupAvailabilityInput, groupCertificationInput, Number(groupLimitInput.value));
     groupRecommendations.forEach((movie) => groupResults.append(renderMovie(movie)));
     if (!groupRecommendations.length) {
       groupResults.innerHTML = `<div class="empty">No shared movies matched these filters and the selected U.S. availability.</div>`;
     }
-    const groupLowest = availabilityFiltered(result.lowest_recommendations, groupAvailabilityInput);
+    const groupLowest = recommendationFiltered(result.lowest_recommendations, groupAvailabilityInput, groupCertificationInput);
     groupLowest.forEach((movie, index) => {
       groupLowestResults.append(renderMovie(movie, `LOW ${index + 1}`));
     });
     groupLowestHeading.hidden = !groupLowest.length;
-    const groupDivisive = availabilityFiltered(result.most_divisive, groupAvailabilityInput);
+    const groupDivisive = recommendationFiltered(result.most_divisive, groupAvailabilityInput, groupCertificationInput);
     groupDivisive.forEach((movie, index) => {
       const personSection = document.createElement("section");
       personSection.className = "person-split";
@@ -1165,8 +1188,7 @@ statCategoryDialog.addEventListener("click", (event) => {
   if (event.target === statCategoryDialog) statCategoryDialog.close();
   const row = event.target.closest(".stat-category-row");
   if (row) {
-    statCategoryDialog.close();
-    showStatMovies(row.dataset.category, row.dataset.value);
+    showStatMovies(row.dataset.category, row.dataset.value, { returnToCategory: true });
   }
 });
 showProfileAccuracyButton.addEventListener("click", showProfileAccuracy);

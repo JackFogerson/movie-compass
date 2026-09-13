@@ -97,6 +97,24 @@ def _with_display_metadata(report: dict, country: str) -> dict:
     )
 
 
+def _load_profile_detail_cache() -> dict[str, dict]:
+    """Merge model metadata with display-only fields such as US certification."""
+    merged: dict[str, dict] = {}
+    for cache_name in ("tmdb-rich-details.json", "display-metadata.json"):
+        cache_path = settings.processed_data_dir / cache_name
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for raw_tmdb_id, details in cached.items():
+            if not str(raw_tmdb_id).isdigit() or not isinstance(details, dict):
+                continue
+            merged.setdefault(str(raw_tmdb_id), {}).update(
+                {key: value for key, value in details.items() if value is not None}
+            )
+    return merged
+
+
 def _local_movie_search_ids(query: str, year: int | None, limit: int) -> list[int]:
     """Search the bundled linked catalog when the live TMDB search is unavailable."""
     try:
@@ -409,18 +427,8 @@ def profile_stats(
     distribution = {f"{value / 2:.1f}": 0 for value in range(1, 11)}
     for rating in ratings:
         distribution[f"{rating:.1f}"] = distribution.get(f"{rating:.1f}", 0) + 1
-    details_path = settings.processed_data_dir / "tmdb-rich-details.json"
-    try:
-        details_raw = (
-            json.loads(details_path.read_text(encoding="utf-8"))
-            if details_path.is_file()
-            else {}
-        )
-    except (OSError, json.JSONDecodeError):
-        details_raw = {}
-    details_by_id = {
-        int(key): value for key, value in details_raw.items() if str(key).isdigit()
-    }
+    details_raw = _load_profile_detail_cache()
+    details_by_id = {int(key): value for key, value in details_raw.items() if str(key).isdigit()}
     taste_breakdown = build_taste_breakdown(
         [
             {
@@ -500,6 +508,7 @@ def profile_stat_movies(
         "languages",
         "runtimes",
         "popularity",
+        "certifications",
     }
     if not VALID_USER.fullmatch(user):
         raise HTTPException(status_code=422, detail="Invalid profile ID")
@@ -522,22 +531,17 @@ def profile_stat_movies(
                 Movie.title,
             )
         ).all()
-    details_path = settings.processed_data_dir / "tmdb-rich-details.json"
-    try:
-        details_raw = json.loads(details_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        details_raw = {}
+    details_raw = _load_profile_detail_cache()
     matches = []
     for movie, interaction in rows:
         if watched_year is not None and (
-            interaction.watched_date is None
-            or interaction.watched_date.year != watched_year
+            interaction.watched_date is None or interaction.watched_date.year != watched_year
         ):
             continue
         details = details_raw.get(str(movie.tmdb_id), {}) if movie.tmdb_id else {}
-        labels = movie_category_labels(
-            {"year": movie.year, "runtime": movie.runtime}, details
-        ).get(category, ())
+        labels = movie_category_labels({"year": movie.year, "runtime": movie.runtime}, details).get(
+            category, ()
+        )
         if value not in labels:
             continue
         poster_path = movie.poster_path or details.get("poster_path")
@@ -548,15 +552,11 @@ def profile_stat_movies(
                 "year": movie.year,
                 "rating": float(interaction.rating),
                 "watched_date": (
-                    interaction.watched_date.isoformat()
-                    if interaction.watched_date
-                    else None
+                    interaction.watched_date.isoformat() if interaction.watched_date else None
                 ),
                 "review_text": interaction.review_text,
                 "poster_url": (
-                    f"https://image.tmdb.org/t/p/w185{poster_path}"
-                    if poster_path
-                    else None
+                    f"https://image.tmdb.org/t/p/w185{poster_path}" if poster_path else None
                 ),
             }
         )
@@ -589,6 +589,7 @@ def profile_stat_category(
         "languages",
         "runtimes",
         "popularity",
+        "certifications",
     }
     if not VALID_USER.fullmatch(user):
         raise HTTPException(status_code=422, detail="Invalid profile ID")
@@ -614,14 +615,8 @@ def profile_stat_category(
             if interaction.watched_date is not None
             and interaction.watched_date.year == watched_year
         ]
-    details_path = settings.processed_data_dir / "tmdb-rich-details.json"
-    try:
-        details_raw = json.loads(details_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        details_raw = {}
-    details_by_id = {
-        int(key): value for key, value in details_raw.items() if str(key).isdigit()
-    }
+    details_raw = _load_profile_detail_cache()
+    details_by_id = {int(key): value for key, value in details_raw.items() if str(key).isdigit()}
     breakdown = build_taste_breakdown(
         [
             {
@@ -680,9 +675,7 @@ def profile_rating_history(user: str) -> dict:
         cache_path = settings.processed_data_dir / cache_name
         try:
             metadata_caches.append(
-                json.loads(cache_path.read_text(encoding="utf-8"))
-                if cache_path.is_file()
-                else {}
+                json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.is_file() else {}
             )
         except (OSError, json.JSONDecodeError):
             metadata_caches.append({})
@@ -804,23 +797,23 @@ def rating_movie_search(
         finally:
             client.close()
     result_rows = [
-            {
-                "tmdb_id": int(item["id"]),
-                "title": item.get("title") or item.get("original_title") or "Untitled",
-                "year": (
-                    int(str(item.get("release_date"))[:4])
-                    if str(item.get("release_date") or "")[:4].isdigit()
-                    else None
-                ),
-                "poster_url": (
-                    f"https://image.tmdb.org/t/p/w185{item['poster_path']}"
-                    if item.get("poster_path")
-                    else None
-                ),
-            }
-            for item in results
-            if item.get("id") is not None
-        ]
+        {
+            "tmdb_id": int(item["id"]),
+            "title": item.get("title") or item.get("original_title") or "Untitled",
+            "year": (
+                int(str(item.get("release_date"))[:4])
+                if str(item.get("release_date") or "")[:4].isdigit()
+                else None
+            ),
+            "poster_url": (
+                f"https://image.tmdb.org/t/p/w185{item['poster_path']}"
+                if item.get("poster_path")
+                else None
+            ),
+        }
+        for item in results
+        if item.get("id") is not None
+    ]
     if user:
         from app.services.recommendation_reports import VALID_USER
 
@@ -866,7 +859,10 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
     if settings.tmdb_api_key:
         client = TmdbClient(settings.tmdb_api_key)
         try:
-            details = client.movie_details(request.tmdb_id, "keywords,credits")
+            details = client.movie_details(
+                request.tmdb_id,
+                "keywords,credits,release_dates",
+            )
         except RetryError as error:
             if cached_movie and cached_movie.get("missing") is not True:
                 details = cached_movie

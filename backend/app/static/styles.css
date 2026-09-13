@@ -350,6 +350,7 @@ button:disabled { cursor: not-allowed; opacity: .66; }
 .badge.rewatch { color: #e4b3ee; border-color: #66466d; }
 .badge.runtime { color: #f0cf8e; border-color: #6a5530; }
 .badge.mood { color: #9fc4eb; border-color: #385b78; }
+.badge.certification { color: #d5d9de; border-color: #58616b; }
 .streaming-info {
   width: 220px;
   max-width: 100%;

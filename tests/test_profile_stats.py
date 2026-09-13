@@ -14,6 +14,11 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "original_language": "en",
             "vote_count": 15_000,
             "credits": {"cast": [{"name": "Favorite Actor"}]},
+            "release_dates": {
+                "results": [
+                    {"iso_3166_1": "US", "release_dates": [{"type": 3, "certification": "PG-13"}]}
+                ]
+            },
         },
         2: {
             "genres": [{"name": "Science Fiction"}],
@@ -21,6 +26,11 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "original_language": "en",
             "vote_count": 12_000,
             "credits": {"cast": [{"name": "Favorite Actor"}]},
+            "release_dates": {
+                "results": [
+                    {"iso_3166_1": "US", "release_dates": [{"type": 3, "certification": "PG-13"}]}
+                ]
+            },
         },
         3: {
             "genres": [{"name": "Drama"}],
@@ -33,14 +43,16 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
 
     result = build_taste_breakdown(movies, details)
 
-    science_fiction = next(
-        item for item in result["genres"] if item["label"] == "Science Fiction"
-    )
+    science_fiction = next(item for item in result["genres"] if item["label"] == "Science Fiction")
     assert result["profile_average"] == 3.33
     assert science_fiction["observed_average"] == 4.5
     assert 3.33 < science_fiction["expected_rating"] < 4.5
     assert result["actors"][0]["label"] == "Favorite Actor"
     assert result["popularity"][0]["label"] == "Blockbusters"
+    assert result["certifications"][0]["label"] == "PG-13"
+    assert result["fun_facts"]["certification_known_films"] == 2
+    assert result["fun_facts"]["certification_unknown_films"] == 1
+    assert result["fun_facts"]["certification_coverage_percent"] == 66.7
     assert result["fun_facts"]["decades_explored"] == 2
 
 
@@ -50,8 +62,7 @@ def test_full_taste_breakdown_keeps_singletons_without_truncation() -> None:
         for index in range(1, 61)
     ]
     details = {
-        index: {"keywords": {"keywords": [{"name": f"theme {index}"}]}}
-        for index in range(1, 61)
+        index: {"keywords": {"keywords": [{"name": f"theme {index}"}]}} for index in range(1, 61)
     }
 
     result = build_taste_breakdown(

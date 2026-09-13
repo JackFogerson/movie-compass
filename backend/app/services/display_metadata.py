@@ -6,11 +6,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Lock
 
+from app.services.certifications import us_certification
 from ingestion.letterboxd.parser import normalize_title
 from ingestion.tmdb.client import TmdbClient
 
 _CACHE_LOCK = Lock()
-_DISPLAY_SCHEMA = 2
+_DISPLAY_SCHEMA = 3
 _PROVIDER_TYPES = {
     "flatrate": "subscription",
     "free": "free",
@@ -101,13 +102,19 @@ def _fetch_display_details(
     media_type = "movie"
     try:
         try:
-            raw = client.movie_details(tmdb_id, "keywords,watch/providers,credits")
+            raw = client.movie_details(
+                tmdb_id,
+                "keywords,watch/providers,credits,release_dates",
+            )
         except Exception:
             match = _tv_match(client.search_tv(title, year), title, year)
             if match is None:
                 return tmdb_id, None
             media_type = "tv"
-            raw = client.tv_details(int(match["id"]), "keywords,watch/providers,credits")
+            raw = client.tv_details(
+                int(match["id"]),
+                "keywords,watch/providers,credits,content_ratings",
+            )
     except Exception:
         return tmdb_id, None
     finally:
@@ -148,6 +155,7 @@ def _fetch_display_details(
         "genres": raw.get("genres", []),
         "keywords": raw.get("keywords", {}),
         "watch_providers": raw.get("watch/providers", {}),
+        "certification": us_certification(raw),
         "fetched_at": datetime.now(UTC).isoformat(),
     }
 
@@ -222,6 +230,7 @@ def enrich_display_metadata(
         movie["directors"] = details.get("directors", [])
         movie["cast"] = details.get("cast", [])
         movie["moods"] = mood_labels(details)
+        movie["certification"] = details.get("certification")
         options, link = streaming_options(details, country)
         movie["streaming"] = options
         movie["streaming_link"] = link

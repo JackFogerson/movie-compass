@@ -39,11 +39,15 @@ def load_or_fetch_details(
                 existing
                 and existing.get("credits") is not None
                 and existing.get("keywords") is not None
+                and existing.get("release_dates") is not None
             ):
                 continue
             fetched += 1
             try:
-                cached[key] = client.movie_details(tmdb_id, "credits,keywords")
+                cached[key] = client.movie_details(
+                    tmdb_id,
+                    "credits,keywords,release_dates",
+                )
             except TmdbNotFound:
                 cached[key] = {"id": tmdb_id, "missing": True}
             if fetched % save_every == 0:
