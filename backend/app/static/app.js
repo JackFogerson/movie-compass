@@ -5,7 +5,7 @@ const limitInput = document.querySelector("#limit");
 const popularityInput = document.querySelector("#popularity");
 const genreInput = document.querySelector("#genre");
 const runtimeInput = document.querySelector("#runtime");
-const countryInput = document.querySelector("#country");
+const availabilityInput = document.querySelector("#availability");
 const applyButton = document.querySelector("#apply");
 const list = document.querySelector("#recommendations");
 const metrics = document.querySelector("#metrics");
@@ -32,6 +32,12 @@ const statMoviesTitle = document.querySelector("#stat-movies-title");
 const statMoviesSummary = document.querySelector("#stat-movies-summary");
 const statMoviesList = document.querySelector("#stat-movies-list");
 const closeStatMoviesButton = document.querySelector("#close-stat-movies");
+const statCategoryDialog = document.querySelector("#stat-category-dialog");
+const statCategoryTitle = document.querySelector("#stat-category-title");
+const statCategorySummary = document.querySelector("#stat-category-summary");
+const statCategoryTop = document.querySelector("#stat-category-top");
+const statCategoryBottom = document.querySelector("#stat-category-bottom");
+const closeStatCategoryButton = document.querySelector("#close-stat-category");
 const showProfileAccuracyButton = document.querySelector("#show-profile-accuracy");
 const exportProfileButton = document.querySelector("#export-profile");
 const profileAccuracy = document.querySelector("#profile-accuracy");
@@ -75,7 +81,7 @@ const groupLimitInput = document.querySelector("#group-limit");
 const groupPopularityInput = document.querySelector("#group-popularity");
 const groupGenreInput = document.querySelector("#group-genre");
 const groupRuntimeInput = document.querySelector("#group-runtime");
-const groupCountryInput = document.querySelector("#group-country");
+const groupAvailabilityInput = document.querySelector("#group-availability");
 const groupIncludeWatchedInput = document.querySelector("#group-include-watched");
 const groupMovieQueryInput = document.querySelector("#group-movie-query");
 const groupMovieSearchYearInput = document.querySelector("#group-movie-search-year");
@@ -136,6 +142,21 @@ function runtimeBounds(input) {
   if (!input.value) return [null, null];
   const [minimum, maximum] = input.value.split("-").map(Number);
   return [minimum, maximum];
+}
+
+function matchesAvailability(movie, selection) {
+  if (selection === "all") return true;
+  const types = new Set((movie.streaming || []).map((item) => item.type));
+  if (selection === "listed") return types.size > 0;
+  if (selection === "subscription") return types.has("subscription");
+  if (selection === "free") return types.has("free") || types.has("free with ads");
+  if (selection === "rent_buy") return types.has("rent") || types.has("buy");
+  return true;
+}
+
+function availabilityFiltered(movies, input, limit = null) {
+  const filtered = (movies || []).filter((movie) => matchesAvailability(movie, input.value));
+  return limit == null ? filtered : filtered.slice(0, limit);
 }
 
 function renderStreaming(movie) {
@@ -278,7 +299,7 @@ function renderMetrics(report) {
 
 function requestParams() {
   const params = new URLSearchParams({
-    limit: limitInput.value,
+    limit: availabilityInput.value === "all" ? limitInput.value : "100",
     popularity: popularityInput.value,
   });
   if (yearMinInput.value) params.set("year_min", yearMinInput.value);
@@ -287,7 +308,7 @@ function requestParams() {
   const [runtimeMinimum, runtimeMaximum] = runtimeBounds(runtimeInput);
   if (runtimeMinimum) params.set("runtime_min", runtimeMinimum);
   if (runtimeMaximum) params.set("runtime_max", runtimeMaximum);
-  params.set("country", countryInput.value);
+  params.set("country", "US");
   return params;
 }
 
@@ -301,7 +322,8 @@ function updateViewLabel(report) {
   const popularityLabel = popularityInput.options[popularityInput.selectedIndex].text;
   const genreLabel = genreInput.value || "All genres";
   const runtimeLabel = runtimeInput.options[runtimeInput.selectedIndex].text;
-  label = `${label} · ${genreLabel} · ${runtimeLabel} · ${popularityLabel}`;
+  const availabilityLabel = availabilityInput.options[availabilityInput.selectedIndex].text;
+  label = `${label} · ${genreLabel} · ${runtimeLabel} · ${popularityLabel} · ${availabilityLabel}`;
   document.querySelector("#active-view").textContent = label;
   const range = report.available_candidate_years;
   const universe = report.candidate_universe || report.candidates_considered;
@@ -315,20 +337,22 @@ function displayReport(report) {
   updateViewLabel(report);
   renderMetrics(report);
   list.innerHTML = "";
-  report.recommendations.forEach((movie) => list.append(renderMovie(movie)));
-  if (!report.recommendations.length) {
-    list.innerHTML = `<div class="empty">No recommendations match this year range. Try widening it.</div>`;
+  const recommendations = availabilityFiltered(report.recommendations, availabilityInput, Number(limitInput.value));
+  recommendations.forEach((movie) => list.append(renderMovie(movie)));
+  if (!recommendations.length) {
+    list.innerHTML = `<div class="empty">No recommendations match these filters. Try a broader availability, year, or genre selection.</div>`;
   }
   if (report.unavailable_candidate_details) {
     notice.hidden = false;
     notice.textContent = `${report.unavailable_candidate_details} stale or unavailable catalog records were skipped safely.`;
   }
   lowestList.innerHTML = "";
-  (report.lowest_recommendations || []).forEach((movie, index) => {
+  const lowestRecommendations = availabilityFiltered(report.lowest_recommendations, availabilityInput);
+  lowestRecommendations.forEach((movie, index) => {
     lowestList.append(renderMovie(movie, `LOW ${index + 1}`));
   });
-  if (!(report.lowest_recommendations || []).length) {
-    lowestList.innerHTML = `<div class="empty">Lowest-score results will appear after the ranking is updated.</div>`;
+  if (!lowestRecommendations.length) {
+    lowestList.innerHTML = `<div class="empty">No lowest-score movies match the selected U.S. availability.</div>`;
   }
 }
 
@@ -531,7 +555,7 @@ async function showProfileStats() {
     const taste = stats.taste_breakdown || {};
     const tasteRows = (heading, category, items) => items?.length ? `
       <section class="taste-stat-card">
-        <h3>${escapeHtml(heading)}</h3>
+        <button type="button" class="taste-category-button" data-category="${escapeHtml(category)}" data-heading="${escapeHtml(heading)}"><span>${escapeHtml(heading)}</span><small>View up to 25 highest and 25 lowest</small></button>
         ${items.map((item) => `<button type="button" class="taste-stat-row" data-category="${escapeHtml(category)}" data-value="${escapeHtml(item.label)}"><span>${escapeHtml(item.label)}<small>${item.films} rated film${item.films === 1 ? "" : "s"} · view movies</small></span><strong>${item.expected_rating.toFixed(2)} ★<small>${item.difference_from_profile >= 0 ? "+" : ""}${item.difference_from_profile.toFixed(2)} vs usual</small></strong></button>`).join("")}
       </section>` : "";
     const tasteBreakdown = taste.explanation ? `
@@ -611,6 +635,31 @@ async function showStatMovies(category, value) {
       : '<div class="empty">No rated movies match this statistic.</div>';
   } catch (error) {
     statMoviesSummary.textContent = error.message;
+  }
+}
+
+async function showStatCategory(category, heading) {
+  statCategoryTitle.textContent = heading;
+  statCategorySummary.textContent = "Loading this profile's strongest and weakest matches…";
+  statCategoryTop.innerHTML = "";
+  statCategoryBottom.innerHTML = "";
+  statCategoryDialog.showModal();
+  try {
+    const params = new URLSearchParams({ category });
+    if (statsYearInput.value) params.set("watched_year", statsYearInput.value);
+    const response = await fetch(
+      `/profiles/${encodeURIComponent(user)}/stats/category?${params}`,
+    );
+    const result = await responseJson(response);
+    if (!response.ok) throw new Error(result.detail || "Taste category could not be loaded");
+    statCategorySummary.textContent = `${result.count} ${heading.toLowerCase()} with rating evidence${result.watched_year ? ` from ${result.watched_year} diary entries` : " across all diary years"}. Click any item to see its movies.`;
+    const rows = (items) => items.length
+      ? items.map((item, index) => `<button type="button" class="stat-category-row" data-category="${escapeHtml(category)}" data-value="${escapeHtml(item.label)}"><span><b>${index + 1}. ${escapeHtml(item.label)}</b><small>${item.films} rated film${item.films === 1 ? "" : "s"}</small></span><strong>${item.expected_rating.toFixed(2)} ★<small>${item.difference_from_profile >= 0 ? "+" : ""}${item.difference_from_profile.toFixed(2)} vs usual</small></strong></button>`).join("")
+      : '<div class="empty compact-empty">Not enough distinct items for this side.</div>';
+    statCategoryTop.innerHTML = rows(result.top || []);
+    statCategoryBottom.innerHTML = rows(result.bottom || []);
+  } catch (error) {
+    statCategorySummary.textContent = error.message;
   }
 }
 
@@ -867,7 +916,7 @@ async function searchMovieScores() {
   searchStatus.textContent = `Searching TMDB for “${query}”${searchYear ? ` from ${searchYear}` : ""}…`;
   searchResults.innerHTML = "";
   try {
-    const params = new URLSearchParams({ q: query, limit: "10", country: countryInput.value });
+    const params = new URLSearchParams({ q: query, limit: "10", country: "US" });
     if (searchYear) params.set("year", searchYear);
     const response = await fetch(`/movies/search/${encodeURIComponent(user)}?${params}`);
     const result = await responseJson(response);
@@ -915,7 +964,7 @@ async function buildGroupRecommendations() {
   const [runtimeMinimum, runtimeMaximum] = runtimeBounds(groupRuntimeInput);
   const body = {
     users,
-    limit: Number(groupLimitInput.value),
+    limit: groupAvailabilityInput.value === "all" ? Number(groupLimitInput.value) : 30,
     popularity: groupPopularityInput.value,
     genre: groupGenreInput.value || null,
     include_watched: groupIncludeWatchedInput.checked,
@@ -923,7 +972,7 @@ async function buildGroupRecommendations() {
     year_max: groupYearMaxInput.value ? Number(groupYearMaxInput.value) : null,
     runtime_min: runtimeMinimum,
     runtime_max: runtimeMaximum,
-    country: groupCountryInput.value,
+    country: "US",
   };
   try {
     const response = await fetch("/groups/recommendations", {
@@ -945,15 +994,18 @@ async function buildGroupRecommendations() {
       (result.include_watched
         ? " Movies seen by the whole group are included."
         : " Movies everyone has already seen are hidden; partially watched choices remain eligible.");
-    result.recommendations.forEach((movie) => groupResults.append(renderMovie(movie)));
-    if (!result.recommendations.length) {
-      groupResults.innerHTML = `<div class="empty">No shared unwatched movies matched these filters.</div>`;
+    const groupRecommendations = availabilityFiltered(result.recommendations, groupAvailabilityInput, Number(groupLimitInput.value));
+    groupRecommendations.forEach((movie) => groupResults.append(renderMovie(movie)));
+    if (!groupRecommendations.length) {
+      groupResults.innerHTML = `<div class="empty">No shared movies matched these filters and the selected U.S. availability.</div>`;
     }
-    (result.lowest_recommendations || []).forEach((movie, index) => {
+    const groupLowest = availabilityFiltered(result.lowest_recommendations, groupAvailabilityInput);
+    groupLowest.forEach((movie, index) => {
       groupLowestResults.append(renderMovie(movie, `LOW ${index + 1}`));
     });
-    groupLowestHeading.hidden = !(result.lowest_recommendations || []).length;
-    (result.most_divisive || []).forEach((movie, index) => {
+    groupLowestHeading.hidden = !groupLowest.length;
+    const groupDivisive = availabilityFiltered(result.most_divisive, groupAvailabilityInput);
+    groupDivisive.forEach((movie, index) => {
       const personSection = document.createElement("section");
       personSection.className = "person-split";
       const personName = movie.featured_enthusiast_display_name || `Person ${index + 1}`;
@@ -961,7 +1013,7 @@ async function buildGroupRecommendations() {
       personSection.append(renderMovie(movie, "SPLIT"));
       groupDivisiveResults.append(personSection);
     });
-    groupDivisiveHeading.hidden = !(result.most_divisive || []).length;
+    groupDivisiveHeading.hidden = !groupDivisive.length;
   } catch (error) {
     groupStatus.textContent = error.message;
   } finally {
@@ -995,7 +1047,7 @@ async function searchGroupMovieScores() {
         query,
         year: searchYear ? Number(searchYear) : null,
         limit: 10,
-        country: groupCountryInput.value,
+        country: "US",
       }),
     });
     const result = await responseJson(response);
@@ -1091,6 +1143,11 @@ rebuildProfileButton.addEventListener("click", rebuildProfile);
 showProfileStatsButton.addEventListener("click", showProfileStats);
 statsYearInput.addEventListener("change", showProfileStats);
 profileStats.addEventListener("click", (event) => {
+  const category = event.target.closest(".taste-category-button");
+  if (category) {
+    showStatCategory(category.dataset.category, category.dataset.heading);
+    return;
+  }
   const row = event.target.closest(".taste-stat-row");
   if (row) showStatMovies(row.dataset.category, row.dataset.value);
 });
@@ -1102,6 +1159,15 @@ ratingHistoryDialog.addEventListener("click", (event) => {
 closeStatMoviesButton.addEventListener("click", () => statMoviesDialog.close());
 statMoviesDialog.addEventListener("click", (event) => {
   if (event.target === statMoviesDialog) statMoviesDialog.close();
+});
+closeStatCategoryButton.addEventListener("click", () => statCategoryDialog.close());
+statCategoryDialog.addEventListener("click", (event) => {
+  if (event.target === statCategoryDialog) statCategoryDialog.close();
+  const row = event.target.closest(".stat-category-row");
+  if (row) {
+    statCategoryDialog.close();
+    showStatMovies(row.dataset.category, row.dataset.value);
+  }
 });
 showProfileAccuracyButton.addEventListener("click", showProfileAccuracy);
 exportProfileButton.addEventListener("click", exportProfile);

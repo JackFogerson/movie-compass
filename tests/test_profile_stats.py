@@ -42,3 +42,24 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
     assert result["actors"][0]["label"] == "Favorite Actor"
     assert result["popularity"][0]["label"] == "Blockbusters"
     assert result["fun_facts"]["decades_explored"] == 2
+
+
+def test_full_taste_breakdown_keeps_singletons_without_truncation() -> None:
+    movies = [
+        {"tmdb_id": index, "rating": 0.5 + (index % 10) * 0.5, "year": 2000}
+        for index in range(1, 61)
+    ]
+    details = {
+        index: {"keywords": {"keywords": [{"name": f"theme {index}"}]}}
+        for index in range(1, 61)
+    }
+
+    result = build_taste_breakdown(
+        movies,
+        details,
+        limit=None,
+        include_singletons=True,
+    )
+
+    assert len(result["themes"]) == 60
+    assert all(item["films"] == 1 for item in result["themes"])

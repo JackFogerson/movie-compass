@@ -100,8 +100,8 @@
           <label>Through year<input id="year-max" type="number" min="1870" max="2200" placeholder="Any year" /></label>
           <label>Genre<select id="genre"><option value="">All genres</option><option>Action</option><option>Adventure</option><option>Animation</option><option>Comedy</option><option>Crime</option><option>Documentary</option><option>Drama</option><option>Family</option><option>Fantasy</option><option>History</option><option>Horror</option><option>Music</option><option>Mystery</option><option>Romance</option><option>Science Fiction</option><option>Thriller</option><option>War</option><option>Western</option></select></label>
           <label>Runtime<select id="runtime"><option value="">Any runtime</option><option value="1-59">Under 60 min</option><option value="60-89">60–89 min</option><option value="90-119">90–119 min</option><option value="120-149">120–149 min</option><option value="150-179">150–179 min</option><option value="180-600">180+ min</option></select></label>
-          <label>Popularity<select id="popularity"><option value="all">All audiences</option><option value="blockbuster">Blockbuster</option><option value="popular">Popular</option><option value="cult_classic">Cult classic</option><option value="under_the_radar">Under the radar</option><option value="unknown">Unknown / emerging</option></select></label>
-          <label>Streaming country<select id="country"><option value="US" selected>USA</option><option value="CA">Canada</option><option value="GB">United Kingdom</option><option value="AU">Australia</option><option value="IE">Ireland</option><option value="NZ">New Zealand</option><option value="DE">Germany</option><option value="FR">France</option><option value="ES">Spain</option><option value="IT">Italy</option></select></label>
+          <label>Audience reach<select id="popularity"><option value="all">Any audience reach</option><option value="blockbuster">Blockbuster</option><option value="popular">Popular</option><option value="cult_classic">Cult classic</option><option value="under_the_radar">Under the radar</option><option value="unknown">Unknown / emerging</option></select></label>
+          <label>Watch in USA<select id="availability"><option value="all">Any availability</option><option value="listed">Any listed option</option><option value="subscription">Subscription streaming</option><option value="free">Free / ad-supported</option><option value="rent_buy">Rent or buy</option></select></label>
           <label>Results<select id="limit"><option>10</option><option selected>20</option><option>30</option></select></label>
           <button id="apply" type="button">Update results</button>
         </section>
@@ -116,7 +116,7 @@
         <section id="search-results" class="recommendations search-results" aria-live="polite"></section>
 
         <section class="context" aria-live="polite">
-          <div><span class="context-label">RECOMMENDATIONS</span><strong id="active-view">All years · all audiences</strong></div>
+          <div><span class="context-label">RECOMMENDATIONS</span><strong id="active-view">All years · any audience reach</strong></div>
           <div id="catalog-range" class="catalog-range"></div>
         </section>
         <section id="metrics" class="metrics" aria-label="Ranking quality"></section>
@@ -158,8 +158,8 @@
           <label>Through year<input id="group-year-max" type="number" min="1870" max="2200" placeholder="Any year" /></label>
           <label>Genre<select id="group-genre"><option value="">All genres</option><option>Action</option><option>Adventure</option><option>Animation</option><option>Comedy</option><option>Crime</option><option>Documentary</option><option>Drama</option><option>Family</option><option>Fantasy</option><option>History</option><option>Horror</option><option>Music</option><option>Mystery</option><option>Romance</option><option>Science Fiction</option><option>Thriller</option><option>War</option><option>Western</option></select></label>
           <label>Runtime<select id="group-runtime"><option value="">Any runtime</option><option value="1-59">Under 60 min</option><option value="60-89">60–89 min</option><option value="90-119">90–119 min</option><option value="120-149">120–149 min</option><option value="150-179">150–179 min</option><option value="180-600">180+ min</option></select></label>
-          <label>Popularity<select id="group-popularity"><option value="all">All audiences</option><option value="blockbuster">Blockbuster</option><option value="popular">Popular</option><option value="cult_classic">Cult classic</option><option value="under_the_radar">Under the radar</option><option value="unknown">Unknown / emerging</option></select></label>
-          <label>Streaming country<select id="group-country"><option value="US" selected>USA</option><option value="CA">Canada</option><option value="GB">United Kingdom</option><option value="AU">Australia</option><option value="IE">Ireland</option><option value="NZ">New Zealand</option><option value="DE">Germany</option><option value="FR">France</option><option value="ES">Spain</option><option value="IT">Italy</option></select></label>
+          <label>Audience reach<select id="group-popularity"><option value="all">Any audience reach</option><option value="blockbuster">Blockbuster</option><option value="popular">Popular</option><option value="cult_classic">Cult classic</option><option value="under_the_radar">Under the radar</option><option value="unknown">Unknown / emerging</option></select></label>
+          <label>Watch in USA<select id="group-availability"><option value="all">Any availability</option><option value="listed">Any listed option</option><option value="subscription">Subscription streaming</option><option value="free">Free / ad-supported</option><option value="rent_buy">Rent or buy</option></select></label>
           <label>Results<select id="group-limit"><option selected>10</option><option>20</option><option>30</option></select></label>
           <button id="build-group" type="button">Find our movie</button>
           <label class="rewatch-toggle"><input id="group-include-watched" type="checkbox" /><span><b>Include movies everyone has seen</b><small>Movies seen by only part of the group are always eligible. Every prior viewer adds a small penalty so new discoveries remain favored.</small></span></label>
@@ -212,9 +212,21 @@
       <div id="stat-movies-list" class="rating-history-list"></div>
     </dialog>
 
+    <dialog id="stat-category-dialog" class="rating-history-dialog stat-category-dialog">
+      <div class="rating-history-heading">
+        <div><span class="context-label">CATEGORY OVERVIEW</span><h2 id="stat-category-title">Taste category</h2></div>
+        <button id="close-stat-category" class="secondary-button" type="button" aria-label="Close category overview">Close</button>
+      </div>
+      <p id="stat-category-summary" class="rating-history-summary"></p>
+      <div class="stat-category-columns">
+        <section><h3>Highest expected ratings</h3><div id="stat-category-top" class="stat-category-list"></div></section>
+        <section><h3>Lowest expected ratings</h3><div id="stat-category-bottom" class="stat-category-list"></div></section>
+      </div>
+    </dialog>
+
     <template id="movie-card-template">
       <article class="movie-card"><div class="rank"></div><div class="poster-shell"><img class="movie-poster" loading="lazy" /></div><div class="movie-main"><div class="movie-heading"><div class="title-stack"><div class="movie-year"></div><h2 class="movie-title"></h2><div class="badges"></div></div><div class="rating-block"><span class="rating-label">EXPECTED</span><strong class="expected-rating"></strong><span class="rating-scale">/ 5</span><span class="plausible-range"></span></div></div><div class="movie-detail-grid"><div class="movie-copy"><p class="expectation-reason"></p><div class="group-scores"></div><ul class="explanations"></ul><div class="risk-explanation"><strong>Why it may not work for you</strong><ul class="cautions"></ul></div><details class="movie-metadata"><summary>Cast, director &amp; synopsis</summary><div class="metadata-copy"></div></details><details><summary>How this score was built</summary><div class="score-grid"></div></details></div><aside class="streaming-info"></aside></div></div></article>
     </template>
-    <script src="/static/app.js?v=20260910-5" defer></script>
+    <script src="/static/app.js?v=20260912-1" defer></script>
   </body>
 </html>

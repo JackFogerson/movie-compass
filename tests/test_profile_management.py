@@ -143,6 +143,10 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
             "/profiles/target/stats/movies",
             params={"category": "actors", "value": "Only Actor"},
         )
+        actor_category = client.get(
+            "/profiles/target/stats/category",
+            params={"category": "actors"},
+        )
         rejected = client.request("DELETE", "/profiles/target", json={"confirmation": "wrong"})
         deleted = client.request("DELETE", "/profiles/target", json={"confirmation": "Movie Fan"})
     finally:
@@ -163,6 +167,10 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
     assert actor_movies.status_code == 200
     assert actor_movies.json()["count"] == 1
     assert actor_movies.json()["movies"][0]["title"] == "Movie One"
+    assert actor_category.status_code == 200
+    assert actor_category.json()["count"] == 1
+    assert actor_category.json()["top"][0]["label"] == "Only Actor"
+    assert actor_category.json()["bottom"] == []
     assert rejected.status_code == 422
     assert deleted.status_code == 200
     assert not ranking_dir.exists()

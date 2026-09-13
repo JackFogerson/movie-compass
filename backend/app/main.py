@@ -571,6 +571,85 @@ def profile_stat_movies(
     }
 
 
+@app.get("/profiles/{user}/stats/category")
+def profile_stat_category(
+    user: str,
+    category: str = Query(max_length=30),
+    watched_year: int | None = Query(default=None, ge=1870, le=2200),
+) -> dict:
+    """Return the strongest and weakest values within one taste category."""
+    from app.services.recommendation_reports import VALID_USER
+
+    valid_categories = {
+        "genres",
+        "themes",
+        "decades",
+        "directors",
+        "actors",
+        "languages",
+        "runtimes",
+        "popularity",
+    }
+    if not VALID_USER.fullmatch(user):
+        raise HTTPException(status_code=422, detail="Invalid profile ID")
+    if category not in valid_categories:
+        raise HTTPException(status_code=422, detail="Invalid statistics category")
+    with SessionLocal() as session:
+        owner = session.scalar(select(User).where(User.slug == user))
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        display_name = owner.display_name
+        rows = session.execute(
+            select(Movie, UserMovieInteraction)
+            .join(UserMovieInteraction, UserMovieInteraction.movie_id == Movie.id)
+            .where(
+                UserMovieInteraction.user_id == owner.id,
+                UserMovieInteraction.rating.is_not(None),
+            )
+        ).all()
+    if watched_year is not None:
+        rows = [
+            (movie, interaction)
+            for movie, interaction in rows
+            if interaction.watched_date is not None
+            and interaction.watched_date.year == watched_year
+        ]
+    details_path = settings.processed_data_dir / "tmdb-rich-details.json"
+    try:
+        details_raw = json.loads(details_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        details_raw = {}
+    details_by_id = {
+        int(key): value for key, value in details_raw.items() if str(key).isdigit()
+    }
+    breakdown = build_taste_breakdown(
+        [
+            {
+                "rating": float(interaction.rating),
+                "year": movie.year,
+                "tmdb_id": movie.tmdb_id,
+                "runtime": movie.runtime,
+            }
+            for movie, interaction in rows
+        ],
+        details_by_id,
+        limit=None,
+        include_singletons=True,
+    )
+    ranked = breakdown.get(category, [])
+    top_count = min(25, (len(ranked) + 1) // 2) if len(ranked) <= 50 else 25
+    bottom_count = min(25, len(ranked) - top_count) if len(ranked) <= 50 else 25
+    return {
+        "user": user,
+        "display_name": display_name,
+        "category": category,
+        "watched_year": watched_year,
+        "count": len(ranked),
+        "top": ranked[:top_count],
+        "bottom": list(reversed(ranked[-bottom_count:])) if bottom_count else [],
+    }
+
+
 @app.get("/profiles/{user}/ratings")
 def profile_rating_history(user: str) -> dict:
     """Return a profile's rated movies, newest watches first and high ratings first."""

@@ -42,7 +42,7 @@ def _summarize(
     profile_average: float,
     *,
     minimum: int,
-    limit: int = 8,
+    limit: int | None = 8,
 ) -> list[dict]:
     rows = []
     for label, ratings in values.items():
@@ -61,7 +61,7 @@ def _summarize(
             }
         )
     rows.sort(key=lambda item: (item["expected_rating"], item["films"]), reverse=True)
-    if len(rows) <= limit:
+    if limit is None or len(rows) <= limit:
         return rows
     top_count = (limit + 1) // 2
     bottom_count = limit - top_count
@@ -115,7 +115,11 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
 
 
 def build_taste_breakdown(
-    rated_movies: list[dict], details_by_id: dict[int, dict]
+    rated_movies: list[dict],
+    details_by_id: dict[int, dict],
+    *,
+    limit: int | None = 8,
+    include_singletons: bool = False,
 ) -> dict:
     ratings = [float(item["rating"]) for item in rated_movies]
     if not ratings:
@@ -142,20 +146,21 @@ def build_taste_breakdown(
                 categories[category][label].append(rating)
 
     standard_deviation = sqrt(mean((rating - profile_average) ** 2 for rating in ratings))
+    repeated_minimum = 1 if include_singletons else 2
     return {
         "profile_average": round(profile_average, 2),
         "explanation": (
             "Expected ratings describe a generic movie with that trait. They blend the observed "
             "average back toward this profile's usual rating when evidence is limited."
         ),
-        "genres": _summarize(categories["genres"], profile_average, minimum=2),
-        "themes": _summarize(categories["themes"], profile_average, minimum=2),
-        "decades": _summarize(categories["decades"], profile_average, minimum=1),
-        "directors": _summarize(categories["directors"], profile_average, minimum=2),
-        "actors": _summarize(categories["actors"], profile_average, minimum=2),
-        "languages": _summarize(categories["languages"], profile_average, minimum=2),
-        "runtimes": _summarize(categories["runtimes"], profile_average, minimum=2),
-        "popularity": _summarize(categories["popularity"], profile_average, minimum=2),
+        "genres": _summarize(categories["genres"], profile_average, minimum=repeated_minimum, limit=limit),
+        "themes": _summarize(categories["themes"], profile_average, minimum=repeated_minimum, limit=limit),
+        "decades": _summarize(categories["decades"], profile_average, minimum=1, limit=limit),
+        "directors": _summarize(categories["directors"], profile_average, minimum=repeated_minimum, limit=limit),
+        "actors": _summarize(categories["actors"], profile_average, minimum=repeated_minimum, limit=limit),
+        "languages": _summarize(categories["languages"], profile_average, minimum=repeated_minimum, limit=limit),
+        "runtimes": _summarize(categories["runtimes"], profile_average, minimum=repeated_minimum, limit=limit),
+        "popularity": _summarize(categories["popularity"], profile_average, minimum=repeated_minimum, limit=limit),
         "fun_facts": {
             "rating_spread": round(standard_deviation, 2),
             "five_star_films": sum(rating == 5 for rating in ratings),
