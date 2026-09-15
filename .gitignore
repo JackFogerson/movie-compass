@@ -11,11 +11,18 @@ data/processed/
 data/*.sqlite3
 ml/artifacts/
 *.egg-info/
+build/
+dist/
+*.spec
+.desktop-smoke/
+.website-repo/
 
 # The shared, non-personal MovieLens model is intentionally portable. Profile
 # rankings, evaluations, and fitted personal baselines remain ignored.
 !ml/artifacts/
 ml/artifacts/*
+!ml/artifacts/__init__.py
+!ml/artifacts/movielens.py
 !ml/artifacts/movielens-32m-9ded58306c28/
 ml/artifacts/movielens-32m-9ded58306c28/*
 !ml/artifacts/movielens-32m-9ded58306c28/catalog.csv.gz

@@ -1,0 +1,46 @@
+$ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
+$projectRoot = $PSScriptRoot
+Set-Location -LiteralPath $projectRoot
+
+$python = if (Test-Path -LiteralPath ".venv\Scripts\python.exe") {
+    ".venv\Scripts\python.exe"
+} else {
+    "python"
+}
+
+try {
+    & $python -c "import PyInstaller, webview"
+    $desktopDependenciesReady = $true
+} catch {
+    $desktopDependenciesReady = $false
+}
+if (-not $desktopDependenciesReady) {
+    & $python -m pip install -e ".[desktop]"
+    if ($LASTEXITCODE -ne 0) { throw "Desktop dependencies could not be installed." }
+}
+
+& $python -m PyInstaller `
+    --noconfirm `
+    --clean `
+    --onedir `
+    --windowed `
+    --name "MovieCompass" `
+    --paths "backend" `
+    --collect-all "webview" `
+    --add-data "backend/app/static;app/static" `
+    --add-data "data/bootstrap;data/bootstrap" `
+    --add-data "ml/artifacts/__init__.py;ml/artifacts" `
+    --add-data "ml/artifacts/movielens.py;ml/artifacts" `
+    --add-data "ml/artifacts/movielens-32m-9ded58306c28/catalog.csv.gz;ml/artifacts/movielens-32m-9ded58306c28" `
+    --add-data "ml/artifacts/movielens-32m-9ded58306c28/manifest.json;ml/artifacts/movielens-32m-9ded58306c28" `
+    --add-data "ml/artifacts/movielens-32m-9ded58306c28/movie_ids.npy;ml/artifacts/movielens-32m-9ded58306c28" `
+    --add-data "ml/artifacts/movielens-32m-9ded58306c28/ratings_csr.npz;ml/artifacts/movielens-32m-9ded58306c28" `
+    --add-data "ml/artifacts/movielens-32m-9ded58306c28/user_ids.npy;ml/artifacts/movielens-32m-9ded58306c28" `
+    --add-data "ml/artifacts/movielens-32m-9ded58306c28/collaborative/latent_factor.joblib;ml/artifacts/movielens-32m-9ded58306c28/collaborative" `
+    --add-data "ml/artifacts/movielens-32m-9ded58306c28/collaborative/manifest.json;ml/artifacts/movielens-32m-9ded58306c28/collaborative" `
+    "scripts/desktop_launcher.py"
+if ($LASTEXITCODE -ne 0) { throw "PyInstaller could not build Movie Compass." }
+
+Write-Host "Desktop app built at dist\MovieCompass\MovieCompass.exe"
+Write-Host "Zip the entire dist\MovieCompass folder when sharing it."

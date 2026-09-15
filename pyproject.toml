@@ -33,6 +33,10 @@ dev = [
   "respx>=0.21,<1",
   "ruff>=0.7,<1",
 ]
+desktop = [
+  "pyinstaller>=6.10,<7",
+  "pywebview>=5.3,<6",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/app", "ingestion", "recommendation", "ml"]

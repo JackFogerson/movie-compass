@@ -1,0 +1,27 @@
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install desktop build dependencies
+        run: python -m pip install -e ".[desktop]"
+      - name: Build Movie Compass
+        shell: powershell
+        run: .\build-desktop.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MovieCompass-Windows
+          path: dist/MovieCompass
+          compression-level: 6

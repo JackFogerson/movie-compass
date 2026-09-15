@@ -1,6 +1,28 @@
-# Personal Movie Recommender
+# Movie Compass — Local Edition
 
-A production-oriented, measurable hybrid recommendation engine centered on personal Letterboxd history. Phase 1 now includes real import, identity mapping, MovieLens training, held-out evaluation, live and all-years ranking, a read-only API, and a local responsive frontend.
+A private, local-first Windows movie recommendation app centered on personal Letterboxd history. Profiles, ratings, reviews, model weights, and generated recommendations remain on the computer running the app. The shared MovieLens model and profile-free TMDB catalog are bundled with releases.
+
+This repository is the **local/desktop edition**. The hosted multi-account website is developed separately in `movie-compass-web`; personal data is never synchronized between the two unless a person explicitly downloads and imports a profile backup.
+
+## Downloadable Windows app
+
+Windows release builds contain a native `MovieCompass.exe` window and do not require the user to install Python. On first launch the app:
+
+1. creates `%LOCALAPPDATA%\MovieCompass`;
+2. copies the shared model and profile-free catalog there;
+3. asks for an optional TMDB API key for live search, posters, and streaming updates; and
+4. stores every imported profile and generated personal model locally.
+
+Download the `MovieCompass-Windows` artifact from the repository's **Build Windows app** GitHub Actions run, unzip the complete folder, and launch `MovieCompass.exe`. Closing the Movie Compass window also stops its private local web server.
+
+Maintainers can build the same folder locally with:
+
+```powershell
+.\setup.ps1
+.\build-desktop.ps1
+```
+
+Never distribute only the `.exe`; the complete `dist\MovieCompass` folder is the application.
 
 ## What works now
 
