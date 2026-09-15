@@ -1,0 +1,27 @@
+MOVIE COMPASS FOR WINDOWS
+=========================
+
+1. Extract the entire MovieCompass-Windows.zip file.
+2. Open the extracted MovieCompass folder.
+3. Double-click MovieCompass.exe.
+
+That is all. You do not need GitHub, Python, a terminal, or an installer.
+
+On first launch, Movie Compass creates its private data folder at:
+%LOCALAPPDATA%\MovieCompass
+
+Your profiles, ratings, reviews, and personalized model stay in that folder.
+Replacing the downloaded app folder with a newer version will not erase them.
+
+The first launch also asks for an optional TMDB API key. The app works with its
+bundled catalog if this is left blank, but live title search, posters, streaming
+availability, and new-release details are more limited.
+
+IMPORTANT
+---------
+Keep every file in the extracted MovieCompass folder together. Do not move only
+MovieCompass.exe out of the folder.
+
+Because this personal build is not code-signed, Windows may show a SmartScreen
+warning. If you trust the person who gave you this package, select More info and
+then Run anyway.

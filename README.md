@@ -6,14 +6,14 @@ This repository is the **local/desktop edition**. The hosted multi-account websi
 
 ## Downloadable Windows app
 
-Windows release builds contain a native `MovieCompass.exe` window and do not require the user to install Python. On first launch the app:
+Windows release builds are delivered as one `MovieCompass-Windows.zip` download. The recipient extracts it and double-clicks `MovieCompass.exe`; they do not need GitHub, Python, a terminal, or an installer. On first launch the app:
 
 1. creates `%LOCALAPPDATA%\MovieCompass`;
 2. copies the shared model and profile-free catalog there;
 3. asks for an optional TMDB API key for live search, posters, and streaming updates; and
 4. stores every imported profile and generated personal model locally.
 
-Download the `MovieCompass-Windows` artifact from the repository's **Build Windows app** GitHub Actions run, unzip the complete folder, and launch `MovieCompass.exe`. Closing the Movie Compass window also stops its private local web server.
+Share the generated `dist\MovieCompass-Windows.zip` file directly by email, cloud drive, or any normal file-sharing service. The recipient unzips the complete folder and launches `MovieCompass.exe`. Closing the Movie Compass window also stops its private local web server.
 
 Maintainers can build the same folder locally with:
 

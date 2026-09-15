@@ -23,5 +23,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: MovieCompass-Windows
-          path: dist/MovieCompass
+          path: dist/MovieCompass-Windows.zip
           compression-level: 6

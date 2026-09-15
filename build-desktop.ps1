@@ -42,5 +42,12 @@ if (-not $desktopDependenciesReady) {
     "scripts/desktop_launcher.py"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller could not build Movie Compass." }
 
+Copy-Item -LiteralPath "desktop\START HERE.txt" -Destination "dist\MovieCompass\START HERE.txt" -Force
+$archive = "dist\MovieCompass-Windows.zip"
+if (Test-Path -LiteralPath $archive) {
+    Remove-Item -LiteralPath $archive -Force
+}
+Compress-Archive -LiteralPath "dist\MovieCompass" -DestinationPath $archive -CompressionLevel Optimal
+
 Write-Host "Desktop app built at dist\MovieCompass\MovieCompass.exe"
-Write-Host "Zip the entire dist\MovieCompass folder when sharing it."
+Write-Host "Ready-to-share download created at dist\MovieCompass-Windows.zip"
