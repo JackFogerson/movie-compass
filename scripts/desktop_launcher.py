@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -52,6 +53,9 @@ def prepare_local_storage(resources: Path, local_root: Path) -> None:
 
 
 def load_tmdb_key(local_root: Path) -> str:
+    supplied_key = os.environ.get("TMDB_API_KEY", "").strip()
+    if supplied_key:
+        return supplied_key
     settings_path = local_root / "settings.env"
     if settings_path.is_file():
         for line in settings_path.read_text(encoding="utf-8").splitlines():
@@ -237,6 +241,14 @@ def run_desktop() -> None:
     wait_for_server(port)
     url = f"http://{HOST}:{port}/"
     logging.info("Local server ready at %s", url)
+    if os.environ.get("MOVIE_COMPASS_SMOKE_TEST") == "1":
+        with urllib.request.urlopen(f"{url}health", timeout=5) as response:
+            if response.status != 200:
+                raise RuntimeError(f"Desktop health check returned HTTP {response.status}")
+        logging.info("Packaged desktop smoke test passed")
+        server.should_exit = True
+        server_thread.join(timeout=10)
+        return
     try:
         try:
             import webview

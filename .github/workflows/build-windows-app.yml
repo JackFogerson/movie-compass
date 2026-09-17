@@ -20,6 +20,14 @@ jobs:
       - name: Build Movie Compass
         shell: powershell
         run: .\build-desktop.ps1
+      - name: Smoke-test packaged app
+        shell: powershell
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "movie-compass-smoke"
+          $env:TMDB_API_KEY = "packaging-smoke-test-key"
+          $env:MOVIE_COMPASS_SMOKE_TEST = "1"
+          & ".\dist\MovieCompass\MovieCompass.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged Movie Compass failed its health check." }
       - uses: actions/upload-artifact@v4
         with:
           name: MovieCompass-Windows
