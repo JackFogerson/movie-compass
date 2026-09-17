@@ -14,7 +14,7 @@ ml/artifacts/
 build/
 dist/
 *.spec
-.desktop-smoke/
+.desktop-smoke*/
 .website-repo/
 
 # The shared, non-personal MovieLens model is intentionally portable. Profile

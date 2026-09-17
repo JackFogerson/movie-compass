@@ -22,7 +22,6 @@ if (-not $desktopDependenciesReady) {
 
 & $python -m PyInstaller `
     --noconfirm `
-    --clean `
     --onedir `
     --windowed `
     --name "MovieCompass" `

@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import faulthandler
+import logging
+import multiprocessing
 import os
 import shutil
 import socket
 import sys
 import threading
 import time
+import traceback
+import webbrowser
 from pathlib import Path
 
 APP_NAME = "Movie Compass"
 HOST = "127.0.0.1"
-PORT = 8765
+PREFERRED_PORT = 8765
 
 
 def bundled_root() -> Path:
@@ -52,7 +57,9 @@ def load_tmdb_key(local_root: Path) -> str:
     if settings_path.is_file():
         for line in settings_path.read_text(encoding="utf-8").splitlines():
             if line.startswith("TMDB_API_KEY="):
-                return line.partition("=")[2].strip()
+                saved_key = line.partition("=")[2].strip()
+                if saved_key:
+                    return saved_key
     try:
         import tkinter as tk
         from tkinter import simpledialog
@@ -63,7 +70,8 @@ def load_tmdb_key(local_root: Path) -> str:
             APP_NAME,
             "Paste your TMDB API key. It is stored only on this computer.\n\n"
             "You can leave this blank and use the bundled offline catalog, but live title "
-            "search, posters, and streaming updates will be limited.",
+            "search, posters, and streaming updates will be limited. Movie Compass will ask "
+            "again the next time it starts if no key is saved.",
             show="*",
             parent=root,
         )
@@ -85,6 +93,12 @@ def configure_environment(resources: Path, local_root: Path) -> None:
         "TMDB_API_KEY": load_tmdb_key(local_root),
         "DATA_DIR": str(local_root / "data"),
         "ML_ARTIFACTS_DIR": str(local_root / "ml" / "artifacts"),
+        # Frozen scientific-library builds can otherwise create dozens of
+        # BLAS workers during import and deadlock on some Windows machines.
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
     }
     os.environ.update(values)
     os.chdir(resources)
@@ -99,47 +113,171 @@ def initialize_database() -> None:
     Base.metadata.create_all(create_engine(get_settings().database_url))
 
 
-def wait_for_server(timeout: float = 30.0) -> None:
+def select_port() -> int:
+    """Prefer the familiar port but recover when another local process owns it."""
+    with socket.socket() as probe:
+        try:
+            probe.bind((HOST, PREFERRED_PORT))
+        except OSError:
+            probe.bind((HOST, 0))
+        return int(probe.getsockname()[1])
+
+
+def wait_for_server(port: int, timeout: float = 30.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         with socket.socket() as connection:
             connection.settimeout(0.25)
-            if connection.connect_ex((HOST, PORT)) == 0:
+            if connection.connect_ex((HOST, port)) == 0:
                 return
         time.sleep(0.1)
     raise RuntimeError("Movie Compass could not start its local server")
 
 
-def main() -> None:
+def configure_startup_log(local_root: Path) -> Path:
+    log_path = local_root / "logs" / "startup.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        filename=log_path,
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        force=True,
+    )
+    return log_path
+
+
+def show_fatal_error(log_path: Path, error: BaseException) -> None:
+    message = (
+        "Movie Compass could not start.\n\n"
+        f"{type(error).__name__}: {error}\n\n"
+        f"A diagnostic log was saved at:\n{log_path}"
+    )
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(APP_NAME, message, parent=root)
+        root.destroy()
+    except Exception:
+        pass
+
+
+def run_browser_fallback(url: str, native_error: BaseException) -> None:
+    """Keep the app usable when WebView2/.NET is unavailable on a PC."""
+    logging.exception("Native window unavailable; using browser fallback", exc_info=native_error)
+    webbrowser.open(url)
+
+    import tkinter as tk
+    from tkinter import ttk
+
+    root = tk.Tk()
+    root.title(f"{APP_NAME} is running")
+    root.geometry("430x190")
+    root.resizable(False, False)
+    frame = ttk.Frame(root, padding=22)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(
+        frame,
+        text="Movie Compass opened in your web browser.",
+        font=("Segoe UI", 11, "bold"),
+    ).pack(pady=(0, 10))
+    ttk.Label(
+        frame,
+        text="Keep this small window open while you use the app.",
+    ).pack(pady=(0, 18))
+    buttons = ttk.Frame(frame)
+    buttons.pack()
+    ttk.Button(buttons, text="Open Movie Compass", command=lambda: webbrowser.open(url)).pack(
+        side="left", padx=5
+    )
+    ttk.Button(buttons, text="Stop Movie Compass", command=root.destroy).pack(
+        side="left", padx=5
+    )
+    root.mainloop()
+
+
+def run_desktop() -> None:
     resources = bundled_root()
     local_root = application_data_root()
+    configure_startup_log(local_root)
+    logging.info("Starting Movie Compass from %s", resources)
     prepare_local_storage(resources, local_root)
+    logging.info("Local catalog and model files are ready")
     configure_environment(resources, local_root)
+    logging.info("Desktop environment is configured")
     initialize_database()
+    logging.info("Personal database is ready")
 
+    logging.info("Loading the local web server")
     import uvicorn
-    import webview
-    from app.main import app
 
+    logging.info("Loading the Movie Compass application")
+    trace_path = local_root / "logs" / "startup-stack.log"
+    with trace_path.open("a", encoding="utf-8") as trace_file:
+        faulthandler.dump_traceback_later(20, file=trace_file)
+        try:
+            from app.main import app
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+
+    logging.info("Movie Compass application loaded")
+    port = select_port()
     server = uvicorn.Server(
-        uvicorn.Config(app, host=HOST, port=PORT, log_level="info", access_log=False)
+        uvicorn.Config(
+            app,
+            host=HOST,
+            port=port,
+            log_level="info",
+            access_log=False,
+            # A --windowed PyInstaller app has no stderr stream. Uvicorn's
+            # default color formatter calls stderr.isatty() and otherwise
+            # aborts before the server starts. The launcher already writes a
+            # persistent file log, so keep Uvicorn on that logging pipeline.
+            log_config=None,
+        )
     )
     server_thread = threading.Thread(target=server.run, name="movie-compass-server", daemon=True)
     server_thread.start()
-    wait_for_server()
-    webview.create_window(
-        APP_NAME,
-        f"http://{HOST}:{PORT}/",
-        width=1280,
-        height=850,
-        min_size=(900, 650),
-    )
+    logging.info("Waiting for the local server on port %s", port)
+    wait_for_server(port)
+    url = f"http://{HOST}:{port}/"
+    logging.info("Local server ready at %s", url)
     try:
-        webview.start()
+        try:
+            import webview
+
+            webview.create_window(
+                APP_NAME,
+                url,
+                width=1280,
+                height=850,
+                min_size=(900, 650),
+            )
+            webview.start()
+        except Exception as native_error:
+            run_browser_fallback(url, native_error)
     finally:
         server.should_exit = True
         server_thread.join(timeout=10)
+        logging.info("Movie Compass stopped")
+
+
+def main() -> None:
+    local_root = application_data_root()
+    log_path = local_root / "logs" / "startup.log"
+    try:
+        run_desktop()
+    except BaseException as error:
+        try:
+            log_path = configure_startup_log(local_root)
+            logging.critical("Movie Compass failed to start\n%s", traceback.format_exc())
+        finally:
+            show_fatal_error(log_path, error)
+        raise
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()
