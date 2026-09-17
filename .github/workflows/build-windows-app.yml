@@ -26,8 +26,10 @@ jobs:
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "movie-compass-smoke"
           $env:TMDB_API_KEY = "packaging-smoke-test-key"
           $env:MOVIE_COMPASS_SMOKE_TEST = "1"
-          & ".\dist\MovieCompass\MovieCompass.exe"
-          if ($LASTEXITCODE -ne 0) { throw "Packaged Movie Compass failed its health check." }
+          $process = Start-Process -FilePath ".\dist\MovieCompass\MovieCompass.exe" -PassThru -Wait
+          $logPath = Join-Path $env:LOCALAPPDATA "MovieCompass\logs\startup.log"
+          if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath }
+          if ($process.ExitCode -ne 0) { throw "Packaged Movie Compass failed its health check with exit code $($process.ExitCode)." }
       - uses: actions/upload-artifact@v4
         with:
           name: MovieCompass-Windows
