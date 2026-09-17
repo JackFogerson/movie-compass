@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import faulthandler
 import logging
 import multiprocessing
 import os
@@ -214,13 +213,7 @@ def run_desktop() -> None:
     import uvicorn
 
     logging.info("Loading the Movie Compass application")
-    trace_path = local_root / "logs" / "startup-stack.log"
-    with trace_path.open("a", encoding="utf-8") as trace_file:
-        faulthandler.dump_traceback_later(20, file=trace_file)
-        try:
-            from app.main import app
-        finally:
-            faulthandler.cancel_dump_traceback_later()
+    from app.main import app
 
     logging.info("Movie Compass application loaded")
     port = select_port()
