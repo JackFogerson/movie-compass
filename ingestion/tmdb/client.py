@@ -85,8 +85,17 @@ class TmdbClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=8),
     )
-    def search_movie(self, title: str, year: int | None = None) -> list[dict]:
-        params: dict[str, str | int] = {"query": title, "include_adult": "false"}
+    def search_movie(
+        self,
+        title: str,
+        year: int | None = None,
+        *,
+        include_adult: bool = False,
+    ) -> list[dict]:
+        params: dict[str, str | int] = {
+            "query": title,
+            "include_adult": str(include_adult).lower(),
+        }
         if year:
             params["year"] = year
         response = self._client.get("/search/movie", params=params)

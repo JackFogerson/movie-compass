@@ -236,7 +236,9 @@ def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
         return local_ids
     client = TmdbClient(settings.tmdb_api_key)
     try:
-        results = client.search_movie(query, year)[:limit]
+        # Direct lookups should be able to find every TMDB movie. TMDB otherwise
+        # silently omits adult-flagged records even for an exact title and year.
+        results = client.search_movie(query, year, include_adult=True)[:limit]
         ordered_ids = [int(item["id"]) for item in results if item.get("id") is not None]
         available, _ = load_or_fetch_details(
             client,
@@ -769,7 +771,7 @@ def rating_movie_search(
         client = TmdbClient(settings.tmdb_api_key)
         local_results = _local_movie_search_results(q, year, 12)
         try:
-            live_results = client.search_movie(q, year)[:12]
+            live_results = client.search_movie(q, year, include_adult=True)[:12]
             results_by_id = {
                 int(item["id"]): item for item in [*local_results, *live_results] if item.get("id")
             }

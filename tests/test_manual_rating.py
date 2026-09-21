@@ -44,8 +44,9 @@ def test_manual_rating_is_saved_and_rebuilds_profile(tmp_path, monkeypatch) -> N
                 "credits": {"crew": [], "cast": []},
             }
 
-        def search_movie(self, query, year):
+        def search_movie(self, query, year, *, include_adult=False):
             assert (query, year) == ("The Matrix", 1999)
+            assert include_adult is True
             return [
                 {
                     "id": 603,

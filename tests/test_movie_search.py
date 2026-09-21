@@ -15,8 +15,9 @@ def test_tmdb_score_search_preserves_relevance_order(monkeypatch) -> None:
         def __init__(self, _key):
             pass
 
-        def search_movie(self, query, year):
+        def search_movie(self, query, year, *, include_adult=False):
             assert (query, year) == ("Alien", 1979)
+            assert include_adult is True
             return [{"id": 348}, {"id": 999}, {"id": 123}]
 
         def close(self):
@@ -42,7 +43,8 @@ def test_tmdb_score_search_falls_back_to_local_catalog_after_retry_error(monkeyp
         def __init__(self, _key):
             pass
 
-        def search_movie(self, _query, _year):
+        def search_movie(self, _query, _year, *, include_adult=False):
+            assert include_adult is True
             from concurrent.futures import Future
 
             from tenacity import RetryError
@@ -68,7 +70,8 @@ def test_tmdb_score_search_reports_outage_instead_of_false_no_match(monkeypatch)
         def __init__(self, _key):
             pass
 
-        def search_movie(self, _query, _year):
+        def search_movie(self, _query, _year, *, include_adult=False):
+            assert include_adult is True
             from concurrent.futures import Future
 
             from tenacity import RetryError
@@ -137,7 +140,8 @@ def test_manual_rating_search_uses_cached_result_during_tmdb_outage(monkeypatch)
         def __init__(self, _key):
             pass
 
-        def search_movie(self, _query, _year):
+        def search_movie(self, _query, _year, *, include_adult=False):
+            assert include_adult is True
             from concurrent.futures import Future
 
             from tenacity import RetryError
