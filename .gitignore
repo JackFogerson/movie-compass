@@ -16,6 +16,7 @@ dist/
 *.spec
 .desktop-smoke*/
 .website-repo/
+logs/
 
 # The shared, non-personal MovieLens model is intentionally portable. Profile
 # rankings, evaluations, and fitted personal baselines remain ignored.
