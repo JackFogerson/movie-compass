@@ -4,11 +4,17 @@ import json
 from pathlib import Path
 from typing import Protocol
 
-from ingestion.tmdb.client import TmdbNotFound
+from ingestion.tmdb.client import (
+    TmdbNotFound,
+    is_tv_catalog_id,
+    normalize_tv_details,
+)
 
 
 class DetailsClient(Protocol):
     def movie_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict: ...
+
+    def tv_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict: ...
 
 
 def _write_cache(path: Path, values: dict[str, dict]) -> None:
@@ -44,10 +50,18 @@ def load_or_fetch_details(
                 continue
             fetched += 1
             try:
-                cached[key] = client.movie_details(
-                    tmdb_id,
-                    "credits,keywords,release_dates",
-                )
+                if is_tv_catalog_id(tmdb_id):
+                    cached[key] = normalize_tv_details(
+                        client.tv_details(
+                            abs(tmdb_id),
+                            "credits,keywords,content_ratings",
+                        )
+                    )
+                else:
+                    cached[key] = client.movie_details(
+                        tmdb_id,
+                        "credits,keywords,release_dates",
+                    )
             except TmdbNotFound:
                 cached[key] = {"id": tmdb_id, "missing": True}
             if fetched % save_every == 0:

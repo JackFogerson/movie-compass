@@ -43,7 +43,12 @@ from app.services.recommendation_reports import (
 from app.services.review_policy import load_review_policy, refresh_review_policy
 from app.services.tmdb_mapping import map_pending_letterboxd, resolve_letterboxd_links
 from ingestion.letterboxd.parser import normalize_title
-from ingestion.tmdb.client import TmdbClient
+from ingestion.tmdb.client import (
+    TmdbClient,
+    is_tv_catalog_id,
+    normalize_tv_details,
+    normalize_tv_search_result,
+)
 from ingestion.tmdb.daily_export import load_catalog_summary
 from ingestion.tmdb.details_cache import load_or_fetch_details
 
@@ -81,7 +86,7 @@ class ProfileDeleteRequest(BaseModel):
 
 
 class ManualRatingRequest(BaseModel):
-    tmdb_id: int = Field(gt=0)
+    tmdb_id: int
     title: str = Field(min_length=1, max_length=500)
     year: int | None = Field(default=None, ge=1870, le=2200)
     rating: float = Field(ge=0.5, le=5.0, multiple_of=0.5)
@@ -107,7 +112,7 @@ def _load_profile_detail_cache() -> dict[str, dict]:
         except (OSError, json.JSONDecodeError):
             continue
         for raw_tmdb_id, details in cached.items():
-            if not str(raw_tmdb_id).isdigit() or not isinstance(details, dict):
+            if not str(raw_tmdb_id).lstrip("-").isdigit() or not isinstance(details, dict):
                 continue
             merged.setdefault(str(raw_tmdb_id), {}).update(
                 {key: value for key, value in details.items() if value is not None}
@@ -154,7 +159,7 @@ def _local_movie_search_ids(query: str, year: int | None, limit: int) -> list[in
         except (OSError, json.JSONDecodeError):
             continue
         for raw_tmdb_id, details in cached.items():
-            if details.get("missing") is True or not str(raw_tmdb_id).isdigit():
+            if details.get("missing") is True or not str(raw_tmdb_id).lstrip("-").isdigit():
                 continue
             release = str(details.get("release_date") or "")
             movie_year = int(release[:4]) if release[:4].isdigit() else None
@@ -196,7 +201,10 @@ def _local_movie_search_results(query: str, year: int | None, limit: int) -> lis
         except (OSError, json.JSONDecodeError):
             continue
         for raw_tmdb_id, details in cached.items():
-            if not str(raw_tmdb_id).isdigit() or int(raw_tmdb_id) not in wanted_ids:
+            if (
+                not str(raw_tmdb_id).lstrip("-").isdigit()
+                or int(raw_tmdb_id) not in wanted_ids
+            ):
                 continue
             tmdb_id = int(raw_tmdb_id)
             current = by_id.setdefault(tmdb_id, {})
@@ -238,7 +246,13 @@ def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
     try:
         # Direct lookups should be able to find every TMDB movie. TMDB otherwise
         # silently omits adult-flagged records even for an exact title and year.
-        results = client.search_movie(query, year, include_adult=True)[:limit]
+        movie_results = client.search_movie(query, year, include_adult=True)
+        tv_results = [
+            normalize_tv_search_result(item)
+            for item in client.search_tv(query, year, include_adult=True)
+            if item.get("id") is not None
+        ]
+        results = [*movie_results, *tv_results][:limit]
         ordered_ids = [int(item["id"]) for item in results if item.get("id") is not None]
         available, _ = load_or_fetch_details(
             client,
@@ -771,7 +785,13 @@ def rating_movie_search(
         client = TmdbClient(settings.tmdb_api_key)
         local_results = _local_movie_search_results(q, year, 12)
         try:
-            live_results = client.search_movie(q, year, include_adult=True)[:12]
+            live_movies = client.search_movie(q, year, include_adult=True)
+            live_tv = [
+                normalize_tv_search_result(item)
+                for item in client.search_tv(q, year, include_adult=True)
+                if item.get("id") is not None
+            ]
+            live_results = [*live_movies, *live_tv][:12]
             results_by_id = {
                 int(item["id"]): item for item in [*local_results, *live_results] if item.get("id")
             }
@@ -812,6 +832,7 @@ def rating_movie_search(
                 if item.get("poster_path")
                 else None
             ),
+            "media_type": item.get("media_type") or "movie",
         }
         for item in results
         if item.get("id") is not None
@@ -846,6 +867,8 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
 
     if not VALID_USER.fullmatch(user):
         raise HTTPException(status_code=422, detail="Invalid profile ID")
+    if request.tmdb_id == 0:
+        raise HTTPException(status_code=422, detail="Invalid TMDB title ID")
     details_cache_path = settings.processed_data_dir / "tmdb-rich-details.json"
     try:
         cached_details = (
@@ -861,10 +884,18 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
     if settings.tmdb_api_key:
         client = TmdbClient(settings.tmdb_api_key)
         try:
-            details = client.movie_details(
-                request.tmdb_id,
-                "keywords,credits,release_dates",
-            )
+            if is_tv_catalog_id(request.tmdb_id):
+                details = normalize_tv_details(
+                    client.tv_details(
+                        abs(request.tmdb_id),
+                        "keywords,credits,content_ratings",
+                    )
+                )
+            else:
+                details = client.movie_details(
+                    request.tmdb_id,
+                    "keywords,credits,release_dates",
+                )
         except RetryError as error:
             if cached_movie and cached_movie.get("missing") is not True:
                 details = cached_movie
@@ -951,7 +982,11 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
             mapping = ImportMapping(
                 user_id=owner.id,
                 source="manual",
-                source_key=f"tmdb:{request.tmdb_id}",
+                source_key=(
+                    f"tmdb:tv:{abs(request.tmdb_id)}"
+                    if is_tv_catalog_id(request.tmdb_id)
+                    else f"tmdb:movie:{request.tmdb_id}"
+                ),
                 movie_id=movie.id,
                 title=title,
                 year=year,
@@ -989,6 +1024,7 @@ def save_manual_rating(user: str, request: ManualRatingRequest) -> dict:
     return {
         "user": user,
         "tmdb_id": request.tmdb_id,
+        "media_type": "tv" if is_tv_catalog_id(request.tmdb_id) else "movie",
         "title": title,
         "rating": request.rating,
         "review_saved": review is not None,

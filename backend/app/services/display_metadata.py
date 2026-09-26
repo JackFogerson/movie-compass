@@ -8,7 +8,7 @@ from threading import Lock
 
 from app.services.certifications import us_certification
 from ingestion.letterboxd.parser import normalize_title
-from ingestion.tmdb.client import TmdbClient
+from ingestion.tmdb.client import TmdbClient, is_tv_catalog_id, normalize_tv_details
 
 _CACHE_LOCK = Lock()
 _DISPLAY_SCHEMA = 3
@@ -101,28 +101,36 @@ def _fetch_display_details(
     client = TmdbClient(api_key)
     media_type = "movie"
     try:
-        try:
-            raw = client.movie_details(
-                tmdb_id,
-                "keywords,watch/providers,credits,release_dates",
-            )
-        except Exception:
-            match = _tv_match(client.search_tv(title, year), title, year)
-            if match is None:
-                return tmdb_id, None
+        if is_tv_catalog_id(tmdb_id):
             media_type = "tv"
-            raw = client.tv_details(
-                int(match["id"]),
-                "keywords,watch/providers,credits,content_ratings",
+            raw = normalize_tv_details(
+                client.tv_details(
+                    abs(tmdb_id),
+                    "keywords,watch/providers,credits,content_ratings",
+                )
             )
+        else:
+            try:
+                raw = client.movie_details(
+                    tmdb_id,
+                    "keywords,watch/providers,credits,release_dates",
+                )
+            except Exception:
+                match = _tv_match(client.search_tv(title, year), title, year)
+                if match is None:
+                    return tmdb_id, None
+                media_type = "tv"
+                raw = normalize_tv_details(
+                    client.tv_details(
+                        int(match["id"]),
+                        "keywords,watch/providers,credits,content_ratings",
+                    )
+                )
     except Exception:
         return tmdb_id, None
     finally:
         client.close()
-    episode_runtimes = raw.get("episode_run_time") or []
     runtime = raw.get("runtime")
-    if media_type == "tv" and episode_runtimes:
-        runtime = next((int(value) for value in episode_runtimes if int(value) > 0), None)
     credits = raw.get("credits") or {}
     directors = []
     for person in credits.get("crew") or []:
@@ -136,7 +144,7 @@ def _fetch_display_details(
     ][:6]
     return tmdb_id, {
         "display_schema": _DISPLAY_SCHEMA,
-        "id": raw.get("id"),
+        "id": abs(int(raw["id"])) if media_type == "tv" and raw.get("id") else raw.get("id"),
         "media_type": media_type,
         "title": raw.get("title") or raw.get("name"),
         "original_title": raw.get("original_title") or raw.get("original_name"),
@@ -147,7 +155,7 @@ def _fetch_display_details(
         "directors": directors,
         "cast": cast,
         "runtime": runtime,
-        "runtime_label": f"{runtime} min/episode" if media_type == "tv" and runtime else None,
+        "runtime_label": raw.get("runtime_label") if media_type == "tv" else None,
         "original_language": raw.get("original_language"),
         "popularity": raw.get("popularity"),
         "vote_average": raw.get("vote_average"),

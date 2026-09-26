@@ -349,3 +349,68 @@ def test_movie_compass_backup_restores_exact_tmdb_mapping_and_name(tmp_path: Pat
     assert mapping.status == "matched_manual"
     assert mapping.movie_id is not None
     assert destination.display_name == "Careful Critic"
+
+
+def test_movie_compass_backup_round_trips_tv_miniseries_namespace(tmp_path: Path) -> None:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        source = User(slug="tv-source", display_name="TV Source")
+        session.add(source)
+        session.flush()
+        show = Movie(
+            tmdb_id=-61617,
+            title="Over the Garden Wall",
+            original_title="Over the Garden Wall",
+            year=2014,
+        )
+        session.add(show)
+        session.flush()
+        session.add(
+            ImportMapping(
+                user_id=source.id,
+                source="manual",
+                source_key="tmdb:tv:61617",
+                movie_id=show.id,
+                title=show.title,
+                year=show.year,
+                status="matched_manual",
+                rating=5.0,
+                watched=True,
+                rewatch_count=0,
+                watchlisted=False,
+            )
+        )
+        session.commit()
+        content, _, _ = build_profile_archive(session, source.slug)
+
+    with zipfile.ZipFile(io.BytesIO(content)) as bundle:
+        manifest = json.loads(bundle.read("movie-compass-profile.json"))
+        assert manifest["movies"][0]["tmdb_id"] == 61617
+        assert manifest["movies"][0]["media_type"] == "tv"
+
+    archive = tmp_path / "tv-profile.zip"
+    archive.write_bytes(content)
+    with session_factory() as session:
+        destination = User(slug="tv-destination", display_name="Destination")
+        session.add(destination)
+        session.flush()
+        mapping = ImportMapping(
+            user_id=destination.id,
+            source="manual",
+            source_key="tmdb:tv:61617",
+            title="Over the Garden Wall",
+            year=2014,
+            status="pending",
+            rating=5.0,
+            watched=True,
+            rewatch_count=0,
+            watchlisted=False,
+        )
+        session.add(mapping)
+        session.commit()
+        restored = restore_profile_archive(session, archive, destination.slug)
+        session.refresh(mapping)
+        restored_movie = session.get(Movie, mapping.movie_id)
+
+    assert restored == 1
+    assert restored_movie.tmdb_id == -61617

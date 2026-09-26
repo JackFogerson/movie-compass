@@ -20,6 +20,10 @@ def test_tmdb_score_search_preserves_relevance_order(monkeypatch) -> None:
             assert include_adult is True
             return [{"id": 348}, {"id": 999}, {"id": 123}]
 
+        def search_tv(self, _query, _year, *, include_adult=False):
+            assert include_adult is True
+            return []
+
         def close(self):
             pass
 
@@ -53,6 +57,10 @@ def test_tmdb_score_search_falls_back_to_local_catalog_after_retry_error(monkeyp
             attempt.set_exception(OSError("offline"))
             raise RetryError(attempt)
 
+        def search_tv(self, _query, _year, *, include_adult=False):
+            assert include_adult is True
+            return []
+
         def close(self):
             pass
 
@@ -79,6 +87,10 @@ def test_tmdb_score_search_reports_outage_instead_of_false_no_match(monkeypatch)
             attempt = Future()
             attempt.set_exception(OSError("offline"))
             raise RetryError(attempt)
+
+        def search_tv(self, _query, _year, *, include_adult=False):
+            assert include_adult is True
+            return []
 
         def close(self):
             pass
@@ -150,6 +162,10 @@ def test_manual_rating_search_uses_cached_result_during_tmdb_outage(monkeypatch)
             attempt.set_exception(OSError("offline"))
             raise RetryError(attempt)
 
+        def search_tv(self, _query, _year, *, include_adult=False):
+            assert include_adult is True
+            return []
+
         def close(self):
             pass
 
@@ -161,8 +177,9 @@ def test_manual_rating_search_uses_cached_result_during_tmdb_outage(monkeypatch)
         {
             "tmdb_id": 1058424,
             "title": "Hope",
-            "year": 2026,
-            "poster_url": "https://image.tmdb.org/t/p/w185/hope.jpg",
-        }
+                "year": 2026,
+                "poster_url": "https://image.tmdb.org/t/p/w185/hope.jpg",
+                "media_type": "movie",
+            }
     ]
     assert "bundled catalog" in result["warning"]

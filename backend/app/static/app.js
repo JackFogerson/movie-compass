@@ -802,7 +802,8 @@ async function exportProfile() {
 
 function chooseManualMovie(movie) {
   selectedManualMovie = movie;
-  selectedManualMovieLabel.textContent = `${movie.title}${movie.year ? ` (${movie.year})` : ""}`;
+  const mediaLabel = movie.media_type === "tv" ? "Miniseries / TV" : "Movie";
+  selectedManualMovieLabel.textContent = `${movie.title}${movie.year ? ` (${movie.year})` : ""} · ${mediaLabel}`;
   manualMovieRatingInput.value = movie.current_rating?.toString() || "3.5";
   manualMovieReviewInput.value = movie.current_review_text || "";
   manualRatingFields.hidden = false;
@@ -831,7 +832,8 @@ async function findManualMovie() {
       const option = document.createElement("button");
       option.type = "button";
       option.className = "manual-movie-option";
-      option.innerHTML = `${movie.poster_url ? `<img src="${escapeHtml(movie.poster_url)}" alt="" loading="lazy" />` : '<span class="manual-movie-poster-placeholder"></span>'}<span><b>${escapeHtml(movie.title)}</b><small>${escapeHtml(movie.year ?? "Year unavailable")}</small></span>`;
+      const mediaLabel = movie.media_type === "tv" ? "Miniseries / TV" : "Movie";
+      option.innerHTML = `${movie.poster_url ? `<img src="${escapeHtml(movie.poster_url)}" alt="" loading="lazy" />` : '<span class="manual-movie-poster-placeholder"></span>'}<span><b>${escapeHtml(movie.title)}</b><small>${escapeHtml(movie.year ?? "Year unavailable")} · ${mediaLabel}</small></span>`;
       option.addEventListener("click", () => chooseManualMovie(movie));
       manualMovieResults.append(option);
     });

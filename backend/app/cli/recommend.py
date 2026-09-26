@@ -258,7 +258,7 @@ def main(
     for tmdb_id in set(candidates_by_id).intersection(enriched):
         candidates_by_id[tmdb_id] = enriched[tmdb_id]
     for raw_id, display_details in display_cached.items():
-        if str(raw_id).isdigit() and int(raw_id) in candidates_by_id:
+        if str(raw_id).lstrip("-").isdigit() and int(raw_id) in candidates_by_id:
             runtime = display_details.get("runtime")
             if runtime:
                 candidates_by_id[int(raw_id)]["runtime"] = runtime
@@ -343,7 +343,9 @@ def main(
         ]
     if candidate_tmdb_ids:
         requested_ids = {
-            int(value.strip()) for value in candidate_tmdb_ids.split(",") if value.strip().isdigit()
+            int(value.strip())
+            for value in candidate_tmdb_ids.split(",")
+            if value.strip().lstrip("-").isdigit()
         }
         eligible_candidates = [
             item for item in eligible_candidates if int(item["id"]) in requested_ids

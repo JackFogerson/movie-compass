@@ -19,6 +19,63 @@ class TmdbNotFound(TmdbError):
     pass
 
 
+def tv_catalog_id(tmdb_id: int) -> int:
+    """Namespace TMDB TV IDs away from movie IDs without changing database schemas."""
+    return -abs(int(tmdb_id))
+
+
+def is_tv_catalog_id(tmdb_id: int) -> bool:
+    return int(tmdb_id) < 0
+
+
+def normalize_tv_search_result(value: dict) -> dict:
+    """Present a TMDB TV search row in the movie-shaped ranking interface."""
+    result = dict(value)
+    result.update(
+        {
+            "id": tv_catalog_id(int(value["id"])),
+            "tmdb_external_id": int(value["id"]),
+            "media_type": "tv",
+            "title": value.get("name") or value.get("original_name") or "Untitled",
+            "original_title": value.get("original_name") or value.get("name"),
+            "release_date": value.get("first_air_date") or "",
+        }
+    )
+    return result
+
+
+def normalize_tv_details(value: dict) -> dict:
+    """Normalize TV/miniseries metadata for the existing hybrid content model."""
+    result = normalize_tv_search_result(value)
+    episode_runtimes = [
+        int(runtime)
+        for runtime in value.get("episode_run_time") or []
+        if str(runtime).isdigit() and int(runtime) > 0
+    ]
+    episode_runtime = episode_runtimes[0] if episode_runtimes else None
+    episode_count = int(value.get("number_of_episodes") or 0)
+    is_miniseries = str(value.get("type") or "").casefold() == "miniseries"
+    result["runtime"] = (
+        episode_runtime * episode_count
+        if is_miniseries and episode_runtime and episode_count
+        else episode_runtime
+    )
+    result["runtime_label"] = (
+        f"{result['runtime']} min total"
+        if is_miniseries and result["runtime"]
+        else f"{result['runtime']} min/episode"
+        if result["runtime"]
+        else None
+    )
+    keywords = value.get("keywords") or {}
+    if "keywords" not in keywords:
+        keywords = {"keywords": keywords.get("results") or []}
+    result["keywords"] = keywords
+    result["release_dates"] = value.get("release_dates") or {}
+    result["content_ratings"] = value.get("content_ratings") or {}
+    return result
+
+
 def _check_response(response: httpx.Response, *, resource: str) -> None:
     if response.status_code == 429:
         raise TmdbError("TMDB rate limit exceeded; retry later")
@@ -118,8 +175,17 @@ class TmdbClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=8),
     )
-    def search_tv(self, title: str, year: int | None = None) -> list[dict]:
-        params: dict[str, str | int] = {"query": title, "include_adult": "false"}
+    def search_tv(
+        self,
+        title: str,
+        year: int | None = None,
+        *,
+        include_adult: bool = False,
+    ) -> list[dict]:
+        params: dict[str, str | int] = {
+            "query": title,
+            "include_adult": str(include_adult).lower(),
+        }
         if year:
             params["first_air_date_year"] = year
         response = self._client.get("/search/tv", params=params)

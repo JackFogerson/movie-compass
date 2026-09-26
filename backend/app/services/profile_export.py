@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.models import ImportMapping, Movie, User
 from app.services.tmdb_mapping import canonical_movie, upsert_interaction
 from ingestion.letterboxd.parser import normalize_title
-from ingestion.tmdb.client import MatchCandidate
+from ingestion.tmdb.client import MatchCandidate, is_tv_catalog_id, tv_catalog_id
 
 
 def _csv_bytes(fieldnames: list[str], rows: list[dict]) -> bytes:
@@ -49,6 +49,8 @@ def build_profile_archive(session: Session, user: str) -> tuple[bytes, str, int]
     diary: list[dict] = []
     manifest_movies: list[dict] = []
     for mapping, tmdb_id in rows:
+        media_type = "tv" if tmdb_id is not None and is_tv_catalog_id(tmdb_id) else "movie"
+        external_tmdb_id = abs(tmdb_id) if tmdb_id is not None else None
         watched_date = mapping.watched_date.isoformat() if mapping.watched_date else ""
         letterboxd_uri = (
             mapping.source_key if str(mapping.source_key).startswith("http") else ""
@@ -58,7 +60,7 @@ def build_profile_archive(session: Session, user: str) -> tuple[bytes, str, int]
             "Name": mapping.title,
             "Year": mapping.year or "",
             "Letterboxd URI": letterboxd_uri,
-            "TMDB ID": tmdb_id or "",
+            "TMDB ID": external_tmdb_id or "",
         }
         ratings.append({**common, "Rating": float(mapping.rating)})
         watched.append(common)
@@ -70,7 +72,8 @@ def build_profile_archive(session: Session, user: str) -> tuple[bytes, str, int]
             {
                 "title": mapping.title,
                 "year": mapping.year,
-                "tmdb_id": tmdb_id,
+                "tmdb_id": external_tmdb_id,
+                "media_type": media_type,
                 "rating": float(mapping.rating),
                 "review_text": (mapping.review_text or "").strip() or None,
                 "watched_date": watched_date or None,
@@ -150,9 +153,13 @@ def restore_profile_archive(session: Session, archive_path: Path, user: str) -> 
     }
     restored = 0
     for item in manifest.get("movies", []):
-        tmdb_id = item.get("tmdb_id")
-        if not isinstance(tmdb_id, int) or tmdb_id <= 0:
+        external_tmdb_id = item.get("tmdb_id")
+        if not isinstance(external_tmdb_id, int) or external_tmdb_id <= 0:
             continue
+        media_type = "tv" if item.get("media_type") == "tv" else "movie"
+        tmdb_id = (
+            tv_catalog_id(external_tmdb_id) if media_type == "tv" else external_tmdb_id
+        )
         year = item.get("year") if isinstance(item.get("year"), int) else None
         mapping = mapping_index.get((normalize_title(str(item.get("title") or "")), year))
         if mapping is None:
@@ -172,6 +179,7 @@ def restore_profile_archive(session: Session, archive_path: Path, user: str) -> 
                     "year": mapping.year,
                     "confidence": 1.0,
                     "source": "movie_compass_backup",
+                    "media_type": media_type,
                 }
             ]
         )
