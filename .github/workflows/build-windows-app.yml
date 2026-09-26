@@ -26,7 +26,6 @@ jobs:
         shell: powershell
         run: |
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "movie-compass-smoke"
-          $env:TMDB_API_KEY = "packaging-smoke-test-key"
           $env:MOVIE_COMPASS_SMOKE_TEST = "1"
           $process = Start-Process -FilePath ".\dist\MovieCompass\MovieCompass.exe" -PassThru -Wait
           $logPath = Join-Path $env:LOCALAPPDATA "MovieCompass\logs\startup.log"

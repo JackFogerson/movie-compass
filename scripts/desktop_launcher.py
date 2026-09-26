@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import multiprocessing
 import os
@@ -256,6 +257,9 @@ def run_desktop() -> None:
         with urllib.request.urlopen(f"{url}health", timeout=5) as response:
             if response.status != 200:
                 raise RuntimeError(f"Desktop health check returned HTTP {response.status}")
+            health = json.loads(response.read().decode("utf-8"))
+            if health.get("tmdb") != "configured":
+                raise RuntimeError("Packaged desktop app does not have a TMDB connection")
         logging.info("Packaged desktop smoke test passed")
         server.should_exit = True
         server_thread.join(timeout=10)
