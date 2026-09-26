@@ -19,11 +19,11 @@ def _report(root: Path) -> None:
         "generated_at": "2026-01-01T00:00:00Z",
         "ranking_metrics": {"coverage": {"recommendations_returned": 2}},
         "recommendations": [
-            {"title": "Old", "year": 1950, "genres": ["Drama"]},
-            {"title": "New", "year": 2025, "genres": ["Horror"]},
+            {"tmdb_id": 1, "title": "Old", "year": 1950, "genres": ["Drama"]},
+            {"tmdb_id": -2, "title": "New", "year": 2025, "genres": ["Horror"]},
         ],
         "lowest_recommendations": [
-            {"title": "Low Drama", "year": 2005, "genres": ["Drama"]}
+            {"tmdb_id": 3, "title": "Low Drama", "year": 2005, "genres": ["Drama"]}
         ],
     }
     (artifact / "recommendations" / "demo" / "all.json").write_text(
@@ -46,6 +46,14 @@ def test_report_filter_and_scope_listing(tmp_path: Path) -> None:
     assert [item["title"] for item in horror["recommendations"]] == ["New"]
     assert horror["lowest_recommendations"] == []
 
+    television = load_recommendation_report(tmp_path, "demo", media_type="tv")
+    assert [item["title"] for item in television["recommendations"]] == ["New"]
+    assert television["api_filter"]["media_type"] == "tv"
+
+    movies = load_recommendation_report(tmp_path, "demo", media_type="movie")
+    assert [item["title"] for item in movies["recommendations"]] == ["Old"]
+    assert [item["title"] for item in movies["lowest_recommendations"]] == ["Low Drama"]
+
 
 def test_report_rejects_unsafe_user_slug(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Invalid user slug"):
@@ -58,7 +66,7 @@ def test_recommendation_api_serves_filtered_report(tmp_path: Path) -> None:
     settings.ml_artifacts_dir = tmp_path
     try:
         client = TestClient(app)
-        response = client.get("/recommendations/demo?year_min=2000&limit=1")
+        response = client.get("/recommendations/demo?year_min=2000&media_type=tv&limit=1")
         scopes = client.get("/recommendations/demo/scopes")
     finally:
         settings.ml_artifacts_dir = original

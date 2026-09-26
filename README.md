@@ -46,8 +46,9 @@ Clone the private repository, open PowerShell in it, and run:
 .\start.ps1
 ```
 
-The setup script securely asks for the TMDB key once, writes it only to the gitignored
-local `.env`, installs the application, and initializes a private SQLite profile database.
+The source setup script securely asks for a TMDB key once and writes it only to the
+gitignored local `.env`. Ready-to-share Windows builds can instead receive a shared key
+from the encrypted GitHub Actions `TMDB_API_KEY` secret; the key is never committed.
 The shared 87,000+ title MovieLens catalog, collaborative model, and a profile-free TMDB
 metadata snapshot are bundled, so there is no dataset download or multi-hour training step.
 Setup also creates any missing writable caches before the first import. In the current installation, choose

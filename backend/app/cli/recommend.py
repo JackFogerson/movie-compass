@@ -100,6 +100,7 @@ def main(
     minimum_movielens_ratings: int = 100,
     popularity_tier: str = "all",
     genre: str | None = None,
+    media_type: str = "all",
     title_query: str | None = None,
     candidate_tmdb_ids: str | None = None,
     bottom_limit: int = 5,
@@ -152,6 +153,8 @@ def main(
         raise typer.BadParameter(
             f"popularity_tier must be one of: {', '.join(sorted(POPULARITY_TIERS))}"
         )
+    if media_type not in {"all", "movie", "tv"}:
+        raise typer.BadParameter("media_type must be one of: all, movie, tv")
     excluded = _excluded_tmdb_ids(
         user,
         include_watchlist=include_watchlist,
@@ -322,6 +325,12 @@ def main(
         return popularity_tier == "all" or classify_popularity(year, evidence) == popularity_tier
 
     eligible_candidates = [item for item in candidates_by_id.values() if in_popularity_tier(item)]
+    if media_type != "all":
+        eligible_candidates = [
+            item
+            for item in eligible_candidates
+            if (media_type == "tv") == (int(item.get("id") or 0) < 0)
+        ]
     if runtime_min is not None or runtime_max is not None:
         eligible_candidates = [
             item
@@ -434,6 +443,7 @@ def main(
         "scope": scope,
         "popularity_tier": popularity_tier,
         "genre_filter": genre,
+        "media_type_filter": media_type,
         "year_filter": {"minimum": year_min, "maximum": year_max},
         "runtime_filter": {"minimum": runtime_min, "maximum": runtime_max},
         "recent_candidate_window": {"from": start.isoformat(), "through": end.isoformat()},

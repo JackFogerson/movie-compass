@@ -28,6 +28,7 @@ def _cached_profile_shortlist(
     runtime_max: int | None,
     popularity: str,
     genre: str | None,
+    media_type: str,
     title_query: str | None,
     candidate_tmdb_ids: str | None,
     include_watched: bool,
@@ -45,6 +46,7 @@ def _cached_profile_shortlist(
         runtime_max=runtime_max,
         popularity_tier=popularity,
         genre=genre,
+        media_type=media_type,
         title_query=title_query,
         candidate_tmdb_ids=candidate_tmdb_ids,
         include_watched=include_watched,
@@ -65,6 +67,7 @@ def _cached_candidate_scores(
     runtime_max: int | None,
     popularity: str,
     genre: str | None,
+    media_type: str,
     include_watched: bool,
 ) -> dict:
     candidate_count = candidate_tmdb_ids.count(",") + 1
@@ -81,6 +84,7 @@ def _cached_candidate_scores(
         runtime_max=runtime_max,
         popularity_tier=popularity,
         genre=genre,
+        media_type=media_type,
         candidate_tmdb_ids=candidate_tmdb_ids,
         include_watched=include_watched,
         live_tmdb=False,
@@ -341,6 +345,7 @@ def generate_group_recommendations(
     runtime_max: int | None = None,
     popularity: str = "all",
     genre: str | None = None,
+    media_type: str = "all",
     title_query: str | None = None,
     candidate_tmdb_ids: str | None = None,
     include_watched: bool = False,
@@ -374,6 +379,7 @@ def generate_group_recommendations(
             runtime_max,
             popularity,
             genre,
+            media_type,
             title_query,
             candidate_tmdb_ids,
             True,
@@ -447,6 +453,7 @@ def generate_group_recommendations(
                 runtime_max,
                 popularity,
                 genre,
+                media_type,
                 True,
             )
 

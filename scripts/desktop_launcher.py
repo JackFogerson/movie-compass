@@ -52,7 +52,15 @@ def prepare_local_storage(resources: Path, local_root: Path) -> None:
     _copy_once(resources / "ml" / "artifacts", local_root / "ml" / "artifacts")
 
 
-def load_tmdb_key(local_root: Path) -> str:
+def bundled_tmdb_key(resources: Path) -> str:
+    """Read a build-injected shared key without ever placing it in source control."""
+    key_path = resources / "data" / "bootstrap" / "tmdb-access.key"
+    if not key_path.is_file():
+        return ""
+    return key_path.read_text(encoding="utf-8").strip()
+
+
+def load_tmdb_key(resources: Path, local_root: Path) -> str:
     supplied_key = os.environ.get("TMDB_API_KEY", "").strip()
     if supplied_key:
         return supplied_key
@@ -63,6 +71,9 @@ def load_tmdb_key(local_root: Path) -> str:
                 saved_key = line.partition("=")[2].strip()
                 if saved_key:
                     return saved_key
+    shared_key = bundled_tmdb_key(resources)
+    if shared_key:
+        return shared_key
     try:
         import tkinter as tk
         from tkinter import simpledialog
@@ -93,7 +104,7 @@ def configure_environment(resources: Path, local_root: Path) -> None:
         "APP_ENV": "desktop",
         "LOG_LEVEL": "INFO",
         "DATABASE_URL": f"sqlite+pysqlite:///{database}",
-        "TMDB_API_KEY": load_tmdb_key(local_root),
+        "TMDB_API_KEY": load_tmdb_key(resources, local_root),
         "DATA_DIR": str(local_root / "data"),
         "ML_ARTIFACTS_DIR": str(local_root / "ml" / "artifacts"),
         # Frozen scientific-library builds can otherwise create dozens of

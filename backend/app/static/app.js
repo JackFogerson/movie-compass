@@ -5,6 +5,7 @@ const limitInput = document.querySelector("#limit");
 const popularityInput = document.querySelector("#popularity");
 const certificationInput = document.querySelector("#certification");
 const genreInput = document.querySelector("#genre");
+const mediaTypeInput = document.querySelector("#media-type");
 const runtimeInput = document.querySelector("#runtime");
 const availabilityInput = document.querySelector("#availability");
 const applyButton = document.querySelector("#apply");
@@ -82,6 +83,7 @@ const groupLimitInput = document.querySelector("#group-limit");
 const groupPopularityInput = document.querySelector("#group-popularity");
 const groupCertificationInput = document.querySelector("#group-certification");
 const groupGenreInput = document.querySelector("#group-genre");
+const groupMediaTypeInput = document.querySelector("#group-media-type");
 const groupRuntimeInput = document.querySelector("#group-runtime");
 const groupAvailabilityInput = document.querySelector("#group-availability");
 const groupIncludeWatchedInput = document.querySelector("#group-include-watched");
@@ -314,6 +316,7 @@ function requestParams() {
   const params = new URLSearchParams({
     limit: availabilityInput.value === "all" && certificationInput.value === "all" ? limitInput.value : "100",
     popularity: popularityInput.value,
+    media_type: mediaTypeInput.value,
   });
   if (yearMinInput.value) params.set("year_min", yearMinInput.value);
   if (yearMaxInput.value) params.set("year_max", yearMaxInput.value);
@@ -334,10 +337,11 @@ function updateViewLabel(report) {
   else if (maxLabel) label = `Through ${maxLabel}`;
   const popularityLabel = popularityInput.options[popularityInput.selectedIndex].text;
   const genreLabel = genreInput.value || "All genres";
+  const mediaTypeLabel = mediaTypeInput.options[mediaTypeInput.selectedIndex].text;
   const runtimeLabel = runtimeInput.options[runtimeInput.selectedIndex].text;
   const availabilityLabel = availabilityInput.options[availabilityInput.selectedIndex].text;
   const certificationLabel = certificationInput.options[certificationInput.selectedIndex].text;
-  label = `${label} · ${genreLabel} · ${runtimeLabel} · ${popularityLabel} · ${certificationLabel} · ${availabilityLabel}`;
+  label = `${label} · ${mediaTypeLabel} · ${genreLabel} · ${runtimeLabel} · ${popularityLabel} · ${certificationLabel} · ${availabilityLabel}`;
   document.querySelector("#active-view").textContent = label;
   const range = report.available_candidate_years;
   const universe = report.candidate_universe || report.candidates_considered;
@@ -991,6 +995,7 @@ async function buildGroupRecommendations() {
     users,
     limit: groupAvailabilityInput.value === "all" && groupCertificationInput.value === "all" ? Number(groupLimitInput.value) : 30,
     popularity: groupPopularityInput.value,
+    media_type: groupMediaTypeInput.value,
     genre: groupGenreInput.value || null,
     include_watched: groupIncludeWatchedInput.checked,
     year_min: groupYearMinInput.value ? Number(groupYearMinInput.value) : null,

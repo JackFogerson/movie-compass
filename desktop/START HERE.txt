@@ -13,9 +13,9 @@ On first launch, Movie Compass creates its private data folder at:
 Your profiles, ratings, reviews, and personalized model stay in that folder.
 Replacing the downloaded app folder with a newer version will not erase them.
 
-The first launch also asks for an optional TMDB API key. The app works with its
-bundled catalog if this is left blank, but live title search, posters, streaming
-availability, and new-release details are more limited.
+This shared build includes its TMDB connection, so users do not need to find or
+enter an API key. If a future build is made without the encrypted build secret,
+the first launch will ask for an optional key and otherwise use the offline catalog.
 
 IMPORTANT
 ---------
