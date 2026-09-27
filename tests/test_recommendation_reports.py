@@ -66,7 +66,7 @@ def test_recommendation_api_serves_filtered_report(tmp_path: Path) -> None:
     settings.ml_artifacts_dir = tmp_path
     try:
         client = TestClient(app)
-        response = client.get("/recommendations/demo?year_min=2000&media_type=tv&limit=1")
+        response = client.get("/recommendations/demo?year_min=2000&limit=1")
         scopes = client.get("/recommendations/demo/scopes")
     finally:
         settings.ml_artifacts_dir = original

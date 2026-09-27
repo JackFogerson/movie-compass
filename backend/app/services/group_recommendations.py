@@ -366,8 +366,32 @@ def generate_group_recommendations(
     watched_by_user = _watched_by_user(normalized)
     display_names = _display_names(normalized)
     exact_search = bool(title_query or candidate_tmdb_ids)
+    primed_reports: dict[str, dict] = {}
+    if media_type == "tv" and not exact_search:
+        first_user = normalized[0]
+        primed_reports[first_user] = generate_recommendations(
+            artifact_dir,
+            user=first_user,
+            limit=shortlist_per_user,
+            bottom_limit=max(50, bottom_limit * 20),
+            max_per_primary_genre=20,
+            scope="all",
+            year_min=year_min,
+            year_max=year_max,
+            runtime_min=runtime_min,
+            runtime_max=runtime_max,
+            popularity_tier=popularity,
+            genre=genre,
+            media_type=media_type,
+            include_watched=True,
+            live_tmdb=True,
+            persist=False,
+            emit=False,
+        )
 
     def initial_score(user: str) -> tuple[str, dict]:
+        if user in primed_reports:
+            return user, primed_reports[user]
         return user, _cached_profile_shortlist(
             str(artifact_dir.resolve()),
             user,
@@ -514,6 +538,7 @@ def generate_group_recommendations(
                 "unpenalized_group_score": round(unpenalized_group_score, 4),
                 "rewatch_penalty": round(rewatch_penalty, 4),
                 "watched_fraction": round(watched_fraction, 4),
+                "watched_count": len(watched_by),
                 "watched_by": watched_by,
                 "individual_scores": individual,
                 "group_reason": reason,

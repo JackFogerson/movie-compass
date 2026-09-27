@@ -265,6 +265,7 @@ def test_group_keeps_partially_watched_movies_without_rewatch_toggle(monkeypatch
 
     assert [movie["tmdb_id"] for movie in report["recommendations"]] == [10]
     assert report["recommendations"][0]["rewatch_penalty"] == 0.1
+    assert report["recommendations"][0]["watched_count"] == 1
     assert report["eligible_for_everyone"] == 1
 
 

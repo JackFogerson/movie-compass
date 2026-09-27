@@ -234,6 +234,34 @@ class TmdbClient:
         _check_response(response, resource="movie discovery")
         return response.json()
 
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def discover_tv(
+        self,
+        *,
+        page: int = 1,
+        minimum_votes: int = 20,
+        first_air_date_gte: str | None = None,
+        first_air_date_lte: str | None = None,
+    ) -> dict:
+        params: dict[str, str | int] = {
+            "include_adult": "false",
+            "language": "en-US",
+            "page": page,
+            "sort_by": "popularity.desc",
+            "vote_count.gte": minimum_votes,
+        }
+        if first_air_date_gte:
+            params["first_air_date.gte"] = first_air_date_gte
+        if first_air_date_lte:
+            params["first_air_date.lte"] = first_air_date_lte
+        response = self._client.get("/discover/tv", params=params)
+        _check_response(response, resource="TV discovery")
+        return response.json()
+
     def close(self) -> None:
         self._client.close()
         self._public_client.close()

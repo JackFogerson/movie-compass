@@ -1177,6 +1177,23 @@ def recommendations(
     limit: int = Query(default=20, ge=1, le=100),
 ) -> dict:
     try:
+        if media_type != "all":
+            report = generate_recommendations(
+                _latest_artifact(settings.ml_artifacts_dir),
+                user=user,
+                limit=limit,
+                scope=scope,
+                year_min=year_min,
+                year_max=year_max,
+                runtime_min=runtime_min,
+                runtime_max=runtime_max,
+                genre=genre,
+                media_type=media_type,
+                live_tmdb=media_type == "tv",
+                persist=False,
+                emit=False,
+            )
+            return _with_display_metadata(report, country)
         report = load_recommendation_report(
             settings.ml_artifacts_dir,
             user,

@@ -6,12 +6,24 @@ from recommendation.baselines.content import ContentBaseline
 from recommendation.baselines.popularity import PopularityBaseline
 from recommendation.collaborative.latent_factor import LatentFactorModel
 from recommendation.ranking.current_catalog import (
+    _candidate_frame,
     classify_popularity,
     humanize_caution_matches,
     humanize_metadata_matches,
     preselect_movielens_candidates,
     rank_current_candidates,
 )
+
+
+def test_tv_namespace_never_collides_with_a_movielens_movie_id() -> None:
+    frame = _candidate_frame(
+        [{"id": -3022, "media_type": "tv", "title": "Rugrats", "genres": []}],
+        {3022: 99},
+    )
+
+    assert frame.iloc[0]["tmdb_id"] == -3022
+    assert frame.iloc[0]["movieId"] == -3022
+    assert frame.iloc[0]["media_type"] == "tv"
 
 
 def test_current_ranking_includes_and_labels_tmdb_only_movies() -> None:

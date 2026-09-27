@@ -20,7 +20,7 @@ from app.services.personal_ratings import (
     personal_tmdb_reviews,
 )
 from app.services.review_policy import load_review_policy
-from ingestion.tmdb.client import TmdbClient
+from ingestion.tmdb.client import TmdbClient, normalize_tv_search_result
 from ingestion.tmdb.details_cache import load_or_fetch_details
 from ml.artifacts.movielens import load_movielens_artifacts
 from ml.evaluation.ranking import compute_ranking_metrics
@@ -176,6 +176,7 @@ def main(
             year = int(row.year) if pd.notna(row.year) else None
             catalog_candidates[tmdb_id] = {
                 "id": tmdb_id,
+                "media_type": "movie",
                 "title": row.clean_title,
                 "release_date": f"{year}-01-01" if year else "",
                 "genres": [
@@ -192,6 +193,11 @@ def main(
     end = today + timedelta(days=lookahead_days)
     cache_path = settings.processed_data_dir / "tmdb-rich-details.json"
     cached_raw = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
+    unavailable_movie_ids = {
+        int(key)
+        for key, value in cached_raw.items()
+        if str(key).isdigit() and value.get("missing") is True
+    }
     enriched = {
         int(key): value for key, value in cached_raw.items() if value.get("missing") is not True
     }
@@ -206,31 +212,50 @@ def main(
             if not str(raw_id).isdigit() or not display_details.get("title"):
                 continue
             tmdb_id = int(raw_id)
+            normalized_details = dict(display_details)
+            if display_details.get("media_type") == "tv" and display_details.get("id"):
+                tmdb_id = -abs(int(display_details["id"]))
+                normalized_details["id"] = tmdb_id
             if tmdb_id in enriched:
                 enriched[tmdb_id].update(
                     {
                         key: value
-                        for key, value in display_details.items()
+                        for key, value in normalized_details.items()
                         if value is not None and key != "watch_providers"
                     }
                 )
             else:
-                enriched[tmdb_id] = display_details
+                enriched[tmdb_id] = normalized_details
     details_fetched = 0
     recent_candidates: list[dict] = []
     if live_tmdb and scope in {"all", "recent"}:
         client = TmdbClient(settings.tmdb_api_key)
         try:
-            for page in range(1, pages + 1):
-                response = client.discover_movies(
-                    release_date_gte=start.isoformat(),
-                    release_date_lte=end.isoformat(),
-                    page=page,
-                    minimum_votes=minimum_votes,
-                )
-                recent_candidates.extend(response.get("results", []))
-                if page >= int(response.get("total_pages") or page):
-                    break
+            if media_type != "tv":
+                for page in range(1, pages + 1):
+                    response = client.discover_movies(
+                        release_date_gte=start.isoformat(),
+                        release_date_lte=end.isoformat(),
+                        page=page,
+                        minimum_votes=minimum_votes,
+                    )
+                    recent_candidates.extend(response.get("results", []))
+                    if page >= int(response.get("total_pages") or page):
+                        break
+            if media_type == "tv":
+                for page in range(1, pages + 1):
+                    response = client.discover_tv(
+                        page=page,
+                        minimum_votes=minimum_votes,
+                        first_air_date_gte=(f"{year_min}-01-01" if year_min else None),
+                        first_air_date_lte=(f"{year_max}-12-31" if year_max else None),
+                    )
+                    recent_candidates.extend(
+                        normalize_tv_search_result(item)
+                        for item in response.get("results", [])
+                    )
+                    if page >= int(response.get("total_pages") or page):
+                        break
             recent_fetch_ids = {
                 int(item["id"]) for item in recent_candidates if item.get("id") is not None
             }
@@ -329,7 +354,16 @@ def main(
         eligible_candidates = [
             item
             for item in eligible_candidates
-            if (media_type == "tv") == (int(item.get("id") or 0) < 0)
+            if (
+                media_type == "tv"
+                and (item.get("media_type") == "tv" or int(item.get("id") or 0) < 0)
+            )
+            or (
+                media_type == "movie"
+                and item.get("media_type") != "tv"
+                and int(item.get("id") or 0) >= 0
+                and int(item.get("id") or 0) not in unavailable_movie_ids
+            )
         ]
     if runtime_min is not None or runtime_max is not None:
         eligible_candidates = [

@@ -156,6 +156,7 @@ class RankedMovie:
     tmdb_vote_average: float
     tmdb_vote_count: int
     review_theme_affinity: float | None
+    media_type: str = "movie"
     relative_to_profile: str = "typical"
     plausible_rating_min: float | None = None
     plausible_rating_max: float | None = None
@@ -266,13 +267,19 @@ def _candidate_frame(candidates: list[dict], movielens_by_tmdb: dict[int, int]) 
         rows.append(
             {
                 "tmdb_id": tmdb_id,
-                "movieId": movielens_by_tmdb.get(tmdb_id, -tmdb_id),
+                "movieId": movielens_by_tmdb.get(
+                    tmdb_id,
+                    tmdb_id if tmdb_id < 0 else -tmdb_id,
+                ),
                 "title": candidate.get("title") or candidate.get("original_title") or "Untitled",
                 "release_date": release_date or None,
                 "year": year,
                 "genres": "|".join(genres),
                 "genre_names": genres,
                 "runtime": candidate.get("runtime"),
+                "media_type": candidate.get("media_type") or (
+                    "tv" if int(candidate["id"]) < 0 else "movie"
+                ),
                 "vote_average": float(candidate.get("vote_average") or 0.0),
                 "vote_count": int(candidate.get("vote_count") or 0),
             }
@@ -446,6 +453,7 @@ def rank_current_candidates(
                     if review_affinities and tmdb_id in review_affinities
                     else None
                 ),
+                media_type=str(row.get("media_type") or "movie"),
                 relative_to_profile=(
                     "below_typical"
                     if float(final_scores[position]) < user_mean - 0.25

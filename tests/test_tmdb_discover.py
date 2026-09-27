@@ -50,3 +50,27 @@ def test_direct_movie_search_can_include_adult_titles() -> None:
         client.close()
 
     assert results[0]["id"] == 119488
+
+
+def test_discover_tv_supports_all_years_and_optional_air_date_window() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path.endswith("/discover/tv")
+        return httpx.Response(200, json={"page": 1, "total_pages": 1, "results": []})
+
+    client = TmdbClient("test-key", transport=httpx.MockTransport(handler))
+    try:
+        client.discover_tv(page=2, minimum_votes=50)
+        client.discover_tv(
+            first_air_date_gte="1990-01-01",
+            first_air_date_lte="1999-12-31",
+        )
+    finally:
+        client.close()
+
+    assert requests[0].url.params["page"] == "2"
+    assert "first_air_date.gte" not in requests[0].url.params
+    assert requests[1].url.params["first_air_date.gte"] == "1990-01-01"
+    assert requests[1].url.params["first_air_date.lte"] == "1999-12-31"

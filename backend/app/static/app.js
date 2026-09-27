@@ -217,17 +217,21 @@ function renderMovie(movie, rankLabel = null) {
     posterShell.remove();
     card.classList.add("no-poster");
   }
-  card.querySelector(".expected-rating").textContent = movie.expected_rating.toFixed(2);
+  const expectedRating = Number(movie.expected_rating);
+  card.querySelector(".expected-rating").textContent = Number.isFinite(expectedRating) ? expectedRating.toFixed(2) : "—";
   const uncertainty = movie.rating_uncertainty;
   const isGroup = Array.isArray(movie.individual_scores);
   card.querySelector(".rating-label").textContent = isGroup ? "GROUP FIT" : "EXPECTED";
-  card.querySelector(".plausible-range").textContent = isGroup
-    ? `Individual range: ${movie.group_minimum.toFixed(1)}–${Math.max(...movie.individual_scores.map((item) => item.expected_rating)).toFixed(1)}`
+  const groupMinimum = Number(movie.group_minimum);
+  const groupMaximum = isGroup ? Math.max(...movie.individual_scores.map((item) => Number(item.expected_rating)).filter(Number.isFinite)) : null;
+  card.querySelector(".plausible-range").textContent = isGroup && Number.isFinite(groupMinimum) && Number.isFinite(groupMaximum)
+    ? `Individual range: ${groupMinimum.toFixed(1)}–${groupMaximum.toFixed(1)}`
     : uncertainty?.plausible_minimum != null
       ? `${Math.round(uncertainty.coverage * 100)}% plausible: ${uncertainty.plausible_minimum.toFixed(1)}–${uncertainty.plausible_maximum.toFixed(1)}`
       : "Uncertainty not calibrated";
   const expectation = movie.ranking_expectation;
   const badges = [
+    `<span class="badge media-type">${movie.media_type === "tv" || Number(movie.tmdb_id) < 0 ? "Miniseries / TV" : "Movie"}</span>`,
     `<span class="badge popularity">${escapeHtml((movie.popularity_tier || "unclassified").replaceAll("_", " "))}</span>`,
     ...movie.genres.map((genre) => `<span class="badge">${escapeHtml(genre)}</span>`),
   ];
@@ -236,8 +240,9 @@ function renderMovie(movie, rankLabel = null) {
   }
   badges.push(`<span class="badge certification">${escapeHtml(movie.certification || "Rating unknown")}</span>`);
   (movie.moods || []).forEach((mood) => badges.push(`<span class="badge mood">${escapeHtml(mood)}</span>`));
-  if (isGroup && movie.watched_by?.length) {
-    badges.push(`<span class="badge rewatch">Seen by ${movie.watched_by.length}/${movie.individual_scores.length}</span>`);
+  const watchedCount = Number(movie.watched_count ?? movie.watched_by?.length ?? 0);
+  if (isGroup && watchedCount > 0) {
+    badges.push(`<span class="badge rewatch">Seen by ${watchedCount}/${movie.individual_scores.length}</span>`);
   }
   card.querySelector(".badges").innerHTML = badges.join("");
   card.querySelector(".streaming-info").innerHTML = renderStreaming(movie);
@@ -248,8 +253,8 @@ function renderMovie(movie, rankLabel = null) {
   if (isGroup) {
     groupScores.innerHTML = movie.individual_scores.map((item) => `
       <div class="group-score-person">
-        <b>${escapeHtml(item.display_name || item.user)}</b> · <strong>${item.expected_rating.toFixed(2)}</strong>
-        <span>${item.plausible_minimum.toFixed(1)}–${item.plausible_maximum.toFixed(1)} plausible</span>
+        <b>${escapeHtml(item.display_name || item.user)}</b> · <strong>${Number.isFinite(Number(item.expected_rating)) ? Number(item.expected_rating).toFixed(2) : "—"}</strong>
+        <span>${Number.isFinite(Number(item.plausible_minimum)) && Number.isFinite(Number(item.plausible_maximum)) ? `${Number(item.plausible_minimum).toFixed(1)}–${Number(item.plausible_maximum).toFixed(1)} plausible` : "Range unavailable"}</span>
         <span>${escapeHtml(item.reason)}</span>
       </div>`).join("");
   } else {
@@ -304,11 +309,12 @@ function renderMetrics(report) {
   }
   const diversity = source.diversity;
   const coverage = source.coverage;
+  const diversityScore = Number(diversity?.intra_list_genre_diversity);
   metrics.innerHTML = [
     metric("Source candidates", coverage.candidates_considered),
-    metric("Genre diversity", diversity.intra_list_genre_diversity.toFixed(2)),
-    metric("Unique genres", diversity.unique_genres),
-    metric("Decades represented", diversity.distinct_decades),
+    metric("Genre diversity", Number.isFinite(diversityScore) ? diversityScore.toFixed(2) : "—"),
+    metric("Unique genres", diversity?.unique_genres ?? 0),
+    metric("Decades represented", diversity?.distinct_decades ?? 0),
   ].join("");
 }
 
