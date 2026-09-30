@@ -714,6 +714,7 @@ async function showProfileRatings() {
               ${item.review_text ? `<p>${escapeHtml(item.review_text)}</p>` : ""}
             </div>
             <div class="rating-history-score"><strong>${item.rating.toFixed(1)}</strong><span>★ / 5</span>${item.rewatch_count ? `<small>${item.rewatch_count} rewatch${item.rewatch_count === 1 ? "" : "es"}</small>` : ""}</div>
+            <button class="rating-history-delete" type="button" data-movie-id="${item.movie_id}" data-movie-title="${escapeHtml(item.title)}">Delete</button>
           </article>`).join("")
       : '<div class="empty">No rated movies are saved for this profile.</div>';
     ratingHistoryDialog.showModal();
@@ -722,6 +723,31 @@ async function showProfileRatings() {
   } finally {
     showProfileRatingsButton.disabled = false;
     showProfileRatingsButton.textContent = "Rating history";
+  }
+}
+
+async function deleteRating(event) {
+  const button = event.target.closest(".rating-history-delete");
+  if (!button) return;
+  const title = button.dataset.movieTitle;
+  if (!window.confirm(`Delete ${title} from this profile's rating history? This cannot be undone.`)) return;
+  button.disabled = true;
+  button.textContent = "Deleting…";
+  try {
+    const response = await fetch(
+      `/profiles/${encodeURIComponent(user)}/ratings/${encodeURIComponent(button.dataset.movieId)}`,
+      { method: "DELETE" },
+    );
+    const result = await responseJson(response);
+    if (!response.ok) throw new Error(result.detail || "Rating could not be deleted");
+    await loadProfiles(user);
+    await loadRecommendations();
+    await showProfileRatings();
+    ratingHistorySummary.textContent = `${result.title} was deleted. ${ratingHistorySummary.textContent}`;
+  } catch (error) {
+    ratingHistorySummary.textContent = error.message;
+    button.disabled = false;
+    button.textContent = "Delete";
   }
 }
 
@@ -1189,6 +1215,7 @@ profileStats.addEventListener("click", (event) => {
 });
 showProfileRatingsButton.addEventListener("click", showProfileRatings);
 closeRatingHistoryButton.addEventListener("click", () => ratingHistoryDialog.close());
+ratingHistoryList.addEventListener("click", deleteRating);
 ratingHistoryDialog.addEventListener("click", (event) => {
   if (event.target === ratingHistoryDialog) ratingHistoryDialog.close();
 });

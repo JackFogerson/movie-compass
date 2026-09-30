@@ -2,7 +2,12 @@ from datetime import date
 from importlib import import_module
 
 from app.db.models import ImportMapping, Movie, User, UserMovieInteraction
-from app.main import ManualRatingRequest, save_manual_rating, settings
+from app.main import (
+    ManualRatingRequest,
+    delete_profile_rating,
+    save_manual_rating,
+    settings,
+)
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -242,3 +247,67 @@ def test_tv_miniseries_can_be_found_and_saved_as_a_rating(tmp_path, monkeypatch)
         assert movie.runtime == 110
         assert float(interaction.rating) == 5.0
         assert mapping.source_key == "tmdb:tv:61617"
+
+
+def test_specific_rating_can_be_deleted_and_profile_rebuilt(tmp_path, monkeypatch) -> None:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    for table in (
+        User.__table__,
+        Movie.__table__,
+        UserMovieInteraction.__table__,
+        ImportMapping.__table__,
+    ):
+        table.create(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with session_factory() as session:
+        owner = User(slug="critic", display_name="Critic")
+        movie = Movie(tmdb_id=603, title="Wrong Matrix", year=1999)
+        session.add_all([owner, movie])
+        session.flush()
+        session.add(
+            UserMovieInteraction(
+                user_id=owner.id,
+                movie_id=movie.id,
+                rating=4.5,
+                watched=True,
+                source="manual",
+            )
+        )
+        session.add(
+            ImportMapping(
+                user_id=owner.id,
+                source="manual",
+                source_key="tmdb:movie:603",
+                title=movie.title,
+                year=movie.year,
+                movie_id=movie.id,
+                status="matched_manual",
+                rating=4.5,
+                watched=True,
+            )
+        )
+        session.commit()
+        movie_id = movie.id
+
+    main_module = import_module("app.main")
+    monkeypatch.setattr(main_module, "SessionLocal", session_factory)
+    monkeypatch.setattr(main_module, "refresh_review_policy", lambda *_args: {})
+    monkeypatch.setattr(main_module, "clear_group_recommendation_cache", lambda: None)
+    monkeypatch.setattr(main_module, "_latest_artifact", lambda _path: tmp_path / "artifact")
+    rebuilt = []
+    monkeypatch.setattr(
+        main_module,
+        "generate_recommendations",
+        lambda *_args, **_kwargs: rebuilt.append(True),
+    )
+
+    result = delete_profile_rating("critic", movie_id)
+
+    assert result["deleted"] is True
+    assert result["title"] == "Wrong Matrix"
+    assert result["ranking_updated"] is True
+    assert rebuilt == [True]
+    with session_factory() as session:
+        assert session.scalar(select(UserMovieInteraction)) is None
+        assert session.scalar(select(ImportMapping)) is None
+        assert session.scalar(select(Movie)).title == "Wrong Matrix"

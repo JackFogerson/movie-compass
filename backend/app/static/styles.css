@@ -235,9 +235,11 @@ h1 {
 .rating-history-heading h2 { margin: 5px 0 0; font: 500 1.55rem Georgia, serif; }
 .rating-history-summary { margin: 0; padding: 13px 20px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: .78rem; }
 .rating-history-list { display: grid; }
-.rating-history-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 82px; gap: 13px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.rating-history-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 82px 72px; gap: 13px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--line); }
 .rating-history-row:last-child { border-bottom: 0; }
 .rating-history-row img, .rating-history-poster-placeholder { width: 48px; height: 68px; object-fit: cover; border-radius: 5px; background: #1b2229; }
+.rating-history-delete { min-height: 34px; padding: 7px 10px; color: #f0a7a7; border-color: #673b3b; background: transparent; }
+.rating-history-delete:hover { border-color: #b75d5d; background: rgba(135, 45, 45, .18); }
 .rating-history-copy { min-width: 0; }
 .rating-history-copy > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
 .rating-history-copy strong { font: 500 1rem Georgia, serif; }
@@ -480,4 +482,5 @@ summary { cursor: pointer; }
   .rating-history-heading, .rating-history-row { padding-inline: 12px; }
   .rating-history-row { grid-template-columns: 38px minmax(0, 1fr) 65px; gap: 9px; }
   .rating-history-row img, .rating-history-poster-placeholder { width: 38px; height: 54px; }
+  .rating-history-delete { grid-column: 2 / -1; justify-self: end; }
 }

@@ -713,6 +713,7 @@ def profile_rating_history(user: str) -> dict:
         poster_path = movie.poster_path or metadata.get("poster_path")
         ratings.append(
             {
+                "movie_id": movie.id,
                 "tmdb_id": movie.tmdb_id,
                 "title": movie.title,
                 "year": movie.year,
@@ -863,6 +864,75 @@ def rating_movie_search(
             )
             item["current_review_text"] = interaction.review_text if interaction else None
     return {"results": result_rows, "warning": search_warning}
+
+
+@app.delete("/profiles/{user}/ratings/{movie_id}")
+def delete_profile_rating(user: str, movie_id: int) -> dict:
+    """Remove one mistaken rating and rebuild the profile without that movie."""
+    from app.services.recommendation_reports import VALID_USER
+
+    if not VALID_USER.fullmatch(user):
+        raise HTTPException(status_code=422, detail="Invalid profile ID")
+    with SessionLocal() as session:
+        owner = session.scalar(select(User).where(User.slug == user))
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        row = session.execute(
+            select(Movie, UserMovieInteraction)
+            .join(UserMovieInteraction, UserMovieInteraction.movie_id == Movie.id)
+            .where(
+                UserMovieInteraction.user_id == owner.id,
+                UserMovieInteraction.movie_id == movie_id,
+                UserMovieInteraction.rating.is_not(None),
+            )
+        ).one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Rated movie not found")
+        movie, interaction = row
+        title = movie.title
+        mappings = session.scalars(
+            select(ImportMapping).where(
+                ImportMapping.user_id == owner.id,
+                ImportMapping.movie_id == movie.id,
+            )
+        ).all()
+        for mapping in mappings:
+            session.delete(mapping)
+        session.delete(interaction)
+        session.commit()
+
+    review_policy_warning = None
+    try:
+        refresh_review_policy(
+            user,
+            settings.processed_data_dir / "tmdb-rich-details.json",
+            settings.processed_data_dir / "review-policies" / f"{user}.json",
+        )
+    except Exception as error:
+        review_policy_warning = f"Review policy refresh failed: {type(error).__name__}"
+    clear_group_recommendation_cache()
+    ranking_warning = None
+    try:
+        generate_recommendations(
+            _latest_artifact(settings.ml_artifacts_dir),
+            user=user,
+            limit=20,
+            scope="all",
+            live_tmdb=False,
+            persist=True,
+            emit=False,
+        )
+    except Exception as error:
+        ranking_warning = f"Rating removed, but ranking refresh failed: {type(error).__name__}"
+    return {
+        "user": user,
+        "movie_id": movie_id,
+        "title": title,
+        "deleted": True,
+        "ranking_updated": ranking_warning is None,
+        "ranking_warning": ranking_warning,
+        "review_policy_warning": review_policy_warning,
+    }
 
 
 @app.put("/profiles/{user}/ratings")
