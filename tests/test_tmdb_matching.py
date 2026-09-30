@@ -1,4 +1,23 @@
-from ingestion.tmdb.client import match_movie
+import httpx
+
+from ingestion.tmdb.client import TmdbClient, match_movie
+
+
+def test_connection_check_uses_authenticated_configuration_endpoint() -> None:
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"images": {}})
+
+    client = TmdbClient("test-key", transport=httpx.MockTransport(handler))
+    try:
+        client.check_connection()
+    finally:
+        client.close()
+
+    assert seen[0].url.path == "/3/configuration"
+    assert seen[0].url.params["api_key"] == "test-key"
 
 
 def test_exact_title_and_year_is_matched() -> None:

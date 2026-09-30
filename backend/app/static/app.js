@@ -1,4 +1,5 @@
 let user = document.body.dataset.user;
+const tmdbStatus = document.querySelector("#tmdb-status");
 const yearMinInput = document.querySelector("#year-min");
 const yearMaxInput = document.querySelector("#year-max");
 const limitInput = document.querySelector("#limit");
@@ -110,6 +111,21 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+async function loadTmdbStatus() {
+  try {
+    const response = await fetch("/tmdb/status");
+    const result = await responseJson(response);
+    tmdbStatus.classList.remove("checking");
+    tmdbStatus.classList.add(result.live ? "live" : "offline");
+    tmdbStatus.textContent = result.live ? "TMDB live" : "TMDB offline · catalog active";
+    tmdbStatus.title = result.message;
+  } catch (_error) {
+    tmdbStatus.classList.remove("checking");
+    tmdbStatus.classList.add("offline");
+    tmdbStatus.textContent = "TMDB status unavailable";
+  }
 }
 
 function metric(label, value) {
@@ -1270,6 +1286,7 @@ groupMovieQueryInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") searchGroupMovieScores();
 });
 const preferredProfile = localStorage.getItem("movie-compass-profile") || user;
+loadTmdbStatus();
 Promise.all([loadCatalogStatus(), loadProfiles(preferredProfile)])
   .then(() => loadRecommendations())
   .catch((error) => {

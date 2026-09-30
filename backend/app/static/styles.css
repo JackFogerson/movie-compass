@@ -39,6 +39,9 @@ button, input, select { font: inherit; }
   backdrop-filter: blur(14px);
 }
 .site-header p { margin: 0; color: var(--muted); font-size: .8rem; }
+.tmdb-status { padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .7rem; white-space: nowrap; }
+.tmdb-status.live { color: var(--green); border-color: rgba(121, 200, 161, .45); }
+.tmdb-status.offline { color: #e7bf76; border-color: rgba(231, 191, 118, .4); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 760; }
 .brand-mark {
   display: grid;

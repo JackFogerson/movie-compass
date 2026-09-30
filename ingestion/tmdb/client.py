@@ -164,6 +164,16 @@ class TmdbClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=8),
     )
+    def check_connection(self) -> None:
+        """Verify both network reachability and the configured TMDB credential."""
+        response = self._client.get("/configuration")
+        _check_response(response, resource="configuration")
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
     def movie_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict:
         params = {"append_to_response": append_to_response} if append_to_response else None
         response = self._client.get(f"/movie/{tmdb_id}", params=params)
