@@ -25,7 +25,39 @@ def _csv_bytes(fieldnames: list[str], rows: list[dict]) -> bytes:
     return output.getvalue().encode("utf-8-sig")
 
 
-def build_profile_archive(session: Session, user: str) -> tuple[bytes, str, int]:
+def _read_details_cache(path: Path | None) -> dict:
+    if path is None or not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _merge_details_cache(path: Path | None, imported: dict) -> int:
+    if path is None or not isinstance(imported, dict) or not imported:
+        return 0
+    existing = _read_details_cache(path)
+    restored = 0
+    for key, value in imported.items():
+        if not str(key).lstrip("-").isdigit() or not isinstance(value, dict):
+            continue
+        existing[str(key)] = value
+        restored += 1
+    if restored:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(existing), encoding="utf-8")
+        temporary.replace(path)
+    return restored
+
+
+def build_profile_archive(
+    session: Session,
+    user: str,
+    details_cache_path: Path | None = None,
+) -> tuple[bytes, str, int]:
     """Build a Letterboxd-compatible, rating-only backup for one profile."""
     owner = session.scalar(select(User).where(User.slug == user))
     if owner is None:
@@ -83,7 +115,7 @@ def build_profile_archive(session: Session, user: str) -> tuple[bytes, str, int]
 
     manifest = {
         "format": "movie-compass-profile",
-        "version": 1,
+        "version": 2,
         "profile_id": owner.slug,
         "display_name": owner.display_name,
         "exported_at": datetime.now(UTC).isoformat(),
@@ -91,6 +123,18 @@ def build_profile_archive(session: Session, user: str) -> tuple[bytes, str, int]
         "movies": manifest_movies,
     }
     archive = io.BytesIO()
+    details_cache = _read_details_cache(details_cache_path)
+    profile_details = {
+        str(movie["tmdb_id"] if movie["media_type"] == "movie" else -movie["tmdb_id"]): (
+            details_cache[
+                str(movie["tmdb_id"] if movie["media_type"] == "movie" else -movie["tmdb_id"])
+            ]
+        )
+        for movie in manifest_movies
+        if movie["tmdb_id"] is not None
+        and str(movie["tmdb_id"] if movie["media_type"] == "movie" else -movie["tmdb_id"])
+        in details_cache
+    }
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         bundle.writestr(
             "ratings.csv",
@@ -121,20 +165,35 @@ def build_profile_archive(session: Session, user: str) -> tuple[bytes, str, int]
             "movie-compass-profile.json",
             json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8"),
         )
+        bundle.writestr(
+            "movie-compass-metadata.json",
+            json.dumps(profile_details, ensure_ascii=False).encode("utf-8"),
+        )
     return archive.getvalue(), f"movie-compass-{owner.slug}.zip", len(rows)
 
 
-def restore_profile_archive(session: Session, archive_path: Path, user: str) -> int:
+def restore_profile_archive(
+    session: Session,
+    archive_path: Path,
+    user: str,
+    details_cache_path: Path | None = None,
+) -> int:
     """Restore exact TMDB mappings and display name from a Movie Compass backup."""
     try:
         with zipfile.ZipFile(archive_path) as bundle:
             if "movie-compass-profile.json" not in bundle.namelist():
                 return 0
             manifest = json.loads(bundle.read("movie-compass-profile.json"))
+            metadata = (
+                json.loads(bundle.read("movie-compass-metadata.json"))
+                if "movie-compass-metadata.json" in bundle.namelist()
+                else {}
+            )
     except (OSError, zipfile.BadZipFile, json.JSONDecodeError, KeyError):
         return 0
-    if manifest.get("format") != "movie-compass-profile" or manifest.get("version") != 1:
+    if manifest.get("format") != "movie-compass-profile" or manifest.get("version") not in {1, 2}:
         return 0
+    _merge_details_cache(details_cache_path, metadata)
 
     owner = session.scalar(select(User).where(User.slug == user))
     if owner is None:

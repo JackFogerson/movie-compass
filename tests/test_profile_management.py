@@ -414,3 +414,69 @@ def test_movie_compass_backup_round_trips_tv_miniseries_namespace(tmp_path: Path
 
     assert restored == 1
     assert restored_movie.tmdb_id == -61617
+
+
+def test_portable_profile_carries_tmdb_metadata_to_a_fresh_install(tmp_path: Path) -> None:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        source = User(slug="portable-source", display_name="Portable Source")
+        movie = Movie(tmdb_id=348, title="Alien", year=1979)
+        session.add_all([source, movie])
+        session.flush()
+        session.add(
+            ImportMapping(
+                user_id=source.id,
+                source="manual",
+                source_key="tmdb:movie:348",
+                movie_id=movie.id,
+                title=movie.title,
+                year=movie.year,
+                status="matched_manual",
+                rating=4.5,
+                watched=True,
+            )
+        )
+        session.commit()
+        source_cache = tmp_path / "source-details.json"
+        source_cache.write_text(
+            json.dumps({"348": {"id": 348, "title": "Alien", "genres": [{"name": "Horror"}]}}),
+            encoding="utf-8",
+        )
+        content, _, _ = build_profile_archive(session, source.slug, source_cache)
+
+    archive = tmp_path / "portable.zip"
+    archive.write_bytes(content)
+    with zipfile.ZipFile(io.BytesIO(content)) as bundle:
+        manifest = json.loads(bundle.read("movie-compass-profile.json"))
+        metadata = json.loads(bundle.read("movie-compass-metadata.json"))
+    assert manifest["version"] == 2
+    assert metadata["348"]["genres"][0]["name"] == "Horror"
+
+    destination_cache = tmp_path / "fresh-install" / "tmdb-rich-details.json"
+    with session_factory() as session:
+        destination = User(slug="portable-destination", display_name="Destination")
+        session.add(destination)
+        session.flush()
+        session.add(
+            ImportMapping(
+                user_id=destination.id,
+                source="manual",
+                source_key="tmdb:movie:348",
+                title="Alien",
+                year=1979,
+                status="pending",
+                rating=4.5,
+                watched=True,
+            )
+        )
+        session.commit()
+        restored = restore_profile_archive(
+            session,
+            archive,
+            destination.slug,
+            destination_cache,
+        )
+
+    assert restored == 1
+    restored_cache = json.loads(destination_cache.read_text(encoding="utf-8"))
+    assert restored_cache["348"]["title"] == "Alien"
