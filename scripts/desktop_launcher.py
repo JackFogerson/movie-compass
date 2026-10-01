@@ -11,7 +11,6 @@ import threading
 import time
 import traceback
 import urllib.request
-import webbrowser
 from pathlib import Path
 
 APP_NAME = "Movie Compass"
@@ -179,40 +178,6 @@ def show_fatal_error(log_path: Path, error: BaseException) -> None:
         pass
 
 
-def run_browser_fallback(url: str, native_error: BaseException) -> None:
-    """Keep the app usable when WebView2/.NET is unavailable on a PC."""
-    logging.exception("Native window unavailable; using browser fallback", exc_info=native_error)
-    webbrowser.open(url)
-
-    import tkinter as tk
-    from tkinter import ttk
-
-    root = tk.Tk()
-    root.title(f"{APP_NAME} is running")
-    root.geometry("430x190")
-    root.resizable(False, False)
-    frame = ttk.Frame(root, padding=22)
-    frame.pack(fill="both", expand=True)
-    ttk.Label(
-        frame,
-        text="Movie Compass opened in your web browser.",
-        font=("Segoe UI", 11, "bold"),
-    ).pack(pady=(0, 10))
-    ttk.Label(
-        frame,
-        text="Keep this small window open while you use the app.",
-    ).pack(pady=(0, 18))
-    buttons = ttk.Frame(frame)
-    buttons.pack()
-    ttk.Button(buttons, text="Open Movie Compass", command=lambda: webbrowser.open(url)).pack(
-        side="left", padx=5
-    )
-    ttk.Button(buttons, text="Stop Movie Compass", command=root.destroy).pack(
-        side="left", padx=5
-    )
-    root.mainloop()
-
-
 def run_desktop() -> None:
     resources = bundled_root()
     local_root = application_data_root()
@@ -265,19 +230,34 @@ def run_desktop() -> None:
         server_thread.join(timeout=10)
         return
     try:
-        try:
-            import webview
+        # Use the bundled Qt browser directly. There is deliberately no
+        # external-browser or operating-system webview fallback here.
+        from PySide6.QtCore import QTimer, QUrl
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        from PySide6.QtWidgets import QApplication
 
-            webview.create_window(
-                APP_NAME,
-                url,
-                width=1280,
-                height=850,
-                min_size=(900, 650),
-            )
-            webview.start()
-        except Exception as native_error:
-            run_browser_fallback(url, native_error)
+        qt_app = QApplication.instance() or QApplication(sys.argv)
+        window = QWebEngineView()
+        window.setWindowTitle(APP_NAME)
+        window.resize(1280, 850)
+        window.setMinimumSize(900, 650)
+        load_error: list[str] = []
+
+        def application_loaded(succeeded: bool) -> None:
+            if not succeeded:
+                load_error.append("Bundled desktop window could not load Movie Compass")
+                qt_app.quit()
+                return
+            if os.environ.get("MOVIE_COMPASS_NATIVE_SMOKE_TEST") == "1":
+                logging.info("Bundled Qt desktop window loaded successfully")
+                QTimer.singleShot(100, qt_app.quit)
+
+        window.loadFinished.connect(application_loaded)
+        window.setUrl(QUrl(url))
+        window.show()
+        qt_app.exec()
+        if load_error:
+            raise RuntimeError(load_error[0])
     finally:
         server.should_exit = True
         server_thread.join(timeout=10)

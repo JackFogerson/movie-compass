@@ -26,9 +26,9 @@ Because this personal build is not code-signed, Windows may show a SmartScreen
 warning. If you trust the person who gave you this package, select More info and
 then Run anyway.
 
-If the built-in window is unavailable on a computer, Movie Compass will open in
-that computer's normal web browser and show a small start/stop control window.
-This is still the same private local app; nothing is being hosted publicly.
+Movie Compass includes its own embedded browser engine and stays inside the
+Movie Compass window. It does not require Edge WebView2 and will not launch an
+external browser as its application shell.
 
 If Movie Compass cannot start, it now displays the exact error and saves a log:
 %LOCALAPPDATA%\MovieCompass\logs\startup.log

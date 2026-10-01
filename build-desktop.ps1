@@ -13,14 +13,16 @@ if ([string]::IsNullOrWhiteSpace($sharedTmdbKey) -and (Test-Path -LiteralPath ".
 New-Item -ItemType Directory -Path $secretDirectory -Force | Out-Null
 Set-Content -LiteralPath $secretFile -Value $sharedTmdbKey -NoNewline
 
-$python = if (Test-Path -LiteralPath ".venv\Scripts\python.exe") {
+$python = if (Test-Path -LiteralPath ".venv-desktop\Scripts\python.exe") {
+    ".venv-desktop\Scripts\python.exe"
+} elseif (Test-Path -LiteralPath ".venv\Scripts\python.exe") {
     ".venv\Scripts\python.exe"
 } else {
     "python"
 }
 
 try {
-    & $python -c "import PyInstaller, webview"
+    & $python -c "import PyInstaller, PySide6"
     $desktopDependenciesReady = $true
 } catch {
     $desktopDependenciesReady = $false
@@ -36,7 +38,6 @@ if (-not $desktopDependenciesReady) {
     --windowed `
     --name "MovieCompass" `
     --paths "backend" `
-    --collect-all "webview" `
     --add-data "backend/app/static;app/static" `
     --add-data "data/bootstrap;data/bootstrap" `
     --add-data "$secretFile;data/bootstrap" `
