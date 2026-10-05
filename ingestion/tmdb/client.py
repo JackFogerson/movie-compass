@@ -44,6 +44,72 @@ def normalize_tv_search_result(value: dict) -> dict:
     return result
 
 
+def rank_title_search_results(query: str, results: list[dict], limit: int = 12) -> list[dict]:
+    """Rank title search rows locally and suppress weak matches when full matches exist."""
+    query_title = normalize_title(query)
+    query_tokens = set(query_title.split())
+
+    def candidate_titles(item: dict) -> list[str]:
+        values = [
+            item.get("title"),
+            item.get("original_title"),
+            item.get("name"),
+            item.get("original_name"),
+        ]
+        return list(dict.fromkeys(normalize_title(str(value)) for value in values if value))
+
+    scored: list[tuple[tuple, int, dict]] = []
+    for position, item in enumerate(results):
+        titles = candidate_titles(item)
+        if not titles:
+            scored.append(((9, 1.0, position), position, item))
+            continue
+        best_title = min(
+            titles,
+            key=lambda title: (
+                0 if title == query_title else 1,
+                0 if title.startswith(query_title) else 1,
+                abs(len(title) - len(query_title)),
+            ),
+        )
+        title_tokens = set(best_title.split())
+        overlap = len(query_tokens & title_tokens)
+        coverage = overlap / len(query_tokens) if query_tokens else 0.0
+        full_match = bool(query_tokens) and query_tokens <= title_tokens
+        if best_title == query_title:
+            match_class = 0
+        elif best_title.startswith(query_title):
+            match_class = 1
+        elif query_title in best_title:
+            match_class = 2
+        elif full_match:
+            match_class = 3
+        else:
+            match_class = 4
+        popularity = float(item.get("popularity") or 0.0)
+        scored.append(
+            (
+                (
+                    match_class,
+                    -coverage,
+                    abs(len(title_tokens) - len(query_tokens)),
+                    -popularity,
+                    position,
+                ),
+                position,
+                item,
+            )
+        )
+
+    # When TMDB found titles containing every meaningful query word, results
+    # matching only one word are noise (and can expose unrelated adult art).
+    has_full_match = len(query_tokens) > 1 and any(row[0][0] <= 3 for row in scored)
+    if has_full_match:
+        scored = [row for row in scored if row[0][0] <= 3]
+    scored.sort(key=lambda row: row[0])
+    return [row[2] for row in scored[:limit]]
+
+
 def normalize_tv_details(value: dict) -> dict:
     """Normalize TV/miniseries metadata for the existing hybrid content model."""
     result = normalize_tv_search_result(value)

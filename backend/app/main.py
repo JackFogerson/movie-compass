@@ -49,6 +49,7 @@ from ingestion.tmdb.client import (
     is_tv_catalog_id,
     normalize_tv_details,
     normalize_tv_search_result,
+    rank_title_search_results,
 )
 from ingestion.tmdb.daily_export import load_catalog_summary
 from ingestion.tmdb.details_cache import load_or_fetch_details
@@ -254,7 +255,7 @@ def _tmdb_search_ids(query: str, year: int | None, limit: int) -> list[int]:
             for item in client.search_tv(query, year, include_adult=True)
             if item.get("id") is not None
         ]
-        results = [*movie_results, *tv_results][:limit]
+        results = rank_title_search_results(query, [*movie_results, *tv_results], limit)
         ordered_ids = [int(item["id"]) for item in results if item.get("id") is not None]
         available, _ = load_or_fetch_details(
             client,
@@ -839,13 +840,14 @@ def rating_movie_search(
                 for item in client.search_tv(q, year, include_adult=True)
                 if item.get("id") is not None
             ]
-            live_results = [*live_movies, *live_tv][:12]
+            live_results = [*live_movies, *live_tv]
             results_by_id = {
                 int(item["id"]): item for item in [*local_results, *live_results] if item.get("id")
             }
-            ordered_ids = [
-                int(item["id"]) for item in [*live_results, *local_results] if item.get("id")
-            ]
+            ranked_results = rank_title_search_results(
+                q, [*live_results, *local_results], 12
+            )
+            ordered_ids = [int(item["id"]) for item in ranked_results if item.get("id")]
             results = [results_by_id[item_id] for item_id in dict.fromkeys(ordered_ids)][:12]
             search_warning = None
         except RetryError as error:
@@ -881,6 +883,7 @@ def rating_movie_search(
                 else None
             ),
             "media_type": item.get("media_type") or "movie",
+            "adult": bool(item.get("adult", False)),
         }
         for item in results
         if item.get("id") is not None

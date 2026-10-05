@@ -235,6 +235,7 @@ def test_tv_miniseries_can_be_found_and_saved_as_a_rating(tmp_path, monkeypatch)
         "year": 2014,
         "poster_url": "https://image.tmdb.org/t/p/w185/garden.jpg",
         "media_type": "tv",
+        "adult": False,
         "current_rating": None,
         "current_review_text": None,
     }
