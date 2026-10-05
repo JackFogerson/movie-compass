@@ -8,6 +8,11 @@ This repository is the **local/desktop edition**. The hosted multi-account websi
 
 Windows release builds are delivered as one `MovieCompass-Windows.zip` download. The recipient extracts it and double-clicks `MovieCompass.exe`; they do not need GitHub, Python, a terminal, or an installer. On first launch the app:
 
+The current public package is always available from the repository's **latest
+release**. Tagged `desktop-v*` builds publish the stable
+`MovieCompass-Windows.zip` asset automatically, which is also linked from the
+hosted website.
+
 1. creates `%LOCALAPPDATA%\MovieCompass`;
 2. copies the shared model and profile-free catalog there;
 3. asks for an optional TMDB API key for live search, posters, and streaming updates; and

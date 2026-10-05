@@ -1,5 +1,8 @@
 name: Build Windows app
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -36,3 +39,10 @@ jobs:
           name: MovieCompass-Windows
           path: dist/MovieCompass-Windows.zip
           compression-level: 6
+      - name: Publish tagged desktop release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Movie Compass Desktop ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/MovieCompass-Windows.zip
