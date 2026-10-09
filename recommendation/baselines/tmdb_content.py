@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,7 +18,36 @@ FEATURE_LABELS = {
 
 
 def _token(prefix: str, value: str) -> str:
-    return f"{prefix}_{'_'.join(value.casefold().split())}"
+    # Keep structured names as one feature even when they contain initials or punctuation.
+    # For example, "J.K. Simmons" must become cast_j_k_simmons rather than cast_j + k_simmons.
+    normalized = "_".join(re.findall(r"[\w-]+", value.casefold()))
+    return f"{prefix}_{normalized}"
+
+
+def _meaningful_structured_value(prefix: str, value: str) -> bool:
+    if prefix not in {"cast", "director"}:
+        return True
+    return any(len(part) > 1 for part in value.replace("-", " ").split())
+
+
+def _display_structured_value(details: dict, prefix: str, token_value: str) -> str:
+    """Recover exact TMDB spelling after a person name was normalized for the model."""
+    if prefix == "cast":
+        rows = details.get("credits", {}).get("cast", [])[:8]
+    elif prefix == "director":
+        rows = [
+            item
+            for item in details.get("credits", {}).get("crew", [])
+            if item.get("job") == "Director"
+        ]
+    else:
+        return token_value.replace("_", " ")
+    expected = f"{prefix}_{token_value}"
+    for item in rows:
+        name = str(item.get("name") or "").strip()
+        if name and _token(prefix, name) == expected:
+            return name.casefold()
+    return token_value.replace("_", " ")
 
 
 def metadata_text(details: dict) -> str:
@@ -99,7 +129,9 @@ class TmdbContentModel:
             prefix, value = feature.split("_", 1)
             if prefix not in FEATURE_LABELS:
                 continue
-            readable = value.replace("_", " ")
+            readable = _display_structured_value(details, prefix, value)
+            if not _meaningful_structured_value(prefix, readable):
+                continue
             if prefix == "language" and readable in {"en", "unknown"}:
                 # English is too common in this catalog to be a useful, readable warning.
                 continue
@@ -134,7 +166,9 @@ class TmdbContentModel:
             prefix, value = feature.split("_", 1)
             if prefix not in FEATURE_LABELS:
                 continue
-            readable = value.replace("_", " ")
+            readable = _display_structured_value(details, prefix, value)
+            if not _meaningful_structured_value(prefix, readable):
+                continue
             if prefix == "decade" and readable.isdigit():
                 readable = f"{readable}s"
             label = f"{FEATURE_LABELS[prefix]}: {readable}"

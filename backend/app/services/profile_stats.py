@@ -83,6 +83,10 @@ def metadata_match_stat_target(match: str) -> tuple[str, str] | None:
         return None
     value = raw_value.strip()
     kind = kind.strip().casefold()
+    if kind in {"director", "cast member"} and not any(
+        len(part) > 1 for part in value.replace("-", " ").split()
+    ):
+        return None
     if kind == "genre":
         return "genres", value
     if kind == "story/theme":

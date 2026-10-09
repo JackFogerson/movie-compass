@@ -1,4 +1,8 @@
-from recommendation.baselines.tmdb_content import TmdbContentModel, metadata_text
+from recommendation.baselines.tmdb_content import (
+    TmdbContentModel,
+    _display_structured_value,
+    metadata_text,
+)
 
 
 def _details(index: int) -> dict:
@@ -21,6 +25,17 @@ def test_metadata_text_includes_rich_features() -> None:
     assert "keyword_memory" in text
     assert "director_director_1" in text
     assert "cast_actor_1" in text
+
+
+def test_metadata_text_keeps_initialed_cast_name_in_one_feature() -> None:
+    details = _details(1)
+    details["credits"]["cast"] = [{"name": "J.K. Simmons"}]
+
+    text = metadata_text(details)
+
+    assert "cast_j_k_simmons" in text
+    assert "cast_j." not in text
+    assert _display_structured_value(details, "cast", "j_k_simmons") == "j.k. simmons"
 
 
 def test_tmdb_content_model_scores_new_metadata() -> None:

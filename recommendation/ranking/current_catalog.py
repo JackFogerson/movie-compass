@@ -51,9 +51,21 @@ def _join_naturally(values: list[str]) -> str:
     return f"{', '.join(values[:-1])}, and {values[-1]}"
 
 
+def meaningful_metadata_match(match: str) -> bool:
+    """Reject malformed person features such as a lone initial from older artifacts."""
+    kind, separator, value = str(match).partition(":")
+    if not separator or not value.strip():
+        return False
+    if kind.strip() not in {"director", "cast member"}:
+        return True
+    return any(len(part) > 1 for part in value.replace("-", " ").split())
+
+
 def humanize_metadata_matches(matches: tuple[str, ...]) -> str:
     readable: list[str] = []
     for match in matches:
+        if not meaningful_metadata_match(match):
+            continue
         kind, _, value = match.partition(": ")
         if kind == "genre":
             readable.append(f"{value} films")
@@ -74,6 +86,7 @@ def humanize_metadata_matches(matches: tuple[str, ...]) -> str:
 
 def describe_positive_matches(matches: tuple[str, ...]) -> str:
     """Describe positive taste evidence as a natural sentence instead of model labels."""
+    matches = tuple(match for match in matches if meaningful_metadata_match(match))
     if not matches:
         return "Its overall style resembles movies that have worked well for you."
     return f"{humanize_metadata_matches(matches).capitalize()} have been reliable matches for you."
@@ -83,6 +96,8 @@ def humanize_caution_matches(matches: tuple[str, ...]) -> str:
     """Turn negative model features into direct, natural-language cautions."""
     readable: list[str] = []
     for match in matches:
+        if not meaningful_metadata_match(match):
+            continue
         kind, _, value = match.partition(": ")
         value = value.strip()
         if kind == "genre":
@@ -391,9 +406,15 @@ def rank_current_candidates(
         personal_matches = (metadata_matches or {}).get(tmdb_id, ())
         if not personal_matches:
             personal_matches = content.explanation_features(row)
+        personal_matches = tuple(
+            match for match in personal_matches if meaningful_metadata_match(match)
+        )
         caution_matches = (metadata_cautions or {}).get(tmdb_id, ())
         if not caution_matches:
             caution_matches = content.caution_features(row)
+        caution_matches = tuple(
+            match for match in caution_matches if meaningful_metadata_match(match)
+        )
         reasons = [
             (
                 "Supported by MovieLens collaborative and personal content signals."

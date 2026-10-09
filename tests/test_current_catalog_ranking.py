@@ -180,3 +180,12 @@ def test_caution_matches_are_clear_and_natural() -> None:
         "been less reliable for you, and French-language films have been less predictable "
         "matches for you"
     )
+
+
+def test_malformed_person_initial_is_not_presented_as_taste_evidence() -> None:
+    reason = humanize_caution_matches(
+        ("genre: drama", "cast member: j", "cast member: johnny simmons")
+    )
+
+    assert "films featuring J " not in reason
+    assert "films featuring Johnny Simmons" in reason
