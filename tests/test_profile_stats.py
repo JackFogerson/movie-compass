@@ -1,5 +1,6 @@
 from app.services.profile_stats import (
     build_taste_breakdown,
+    category_label_matches,
     metadata_match_stat_target,
     movie_category_labels,
 )
@@ -43,6 +44,16 @@ def test_production_countries_and_ranking_descriptors_use_stats_labels() -> None
         "languages",
         "French-language",
     )
+    assert category_label_matches("Los angeles, california", "los angeles california")
+    assert category_label_matches("Vikings (norsemen)", "vikings norsemen")
+
+
+def test_theme_stats_keep_keywords_beyond_the_old_twenty_four_item_limit() -> None:
+    keywords = [{"name": f"theme {index}"} for index in range(30)]
+
+    labels = movie_category_labels({}, {"keywords": {"keywords": keywords}})
+
+    assert "Theme 29" in labels["themes"]
 
 
 def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -> None:

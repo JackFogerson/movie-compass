@@ -35,6 +35,7 @@ from app.services.profile_accuracy import profile_accuracy as evaluate_profile_a
 from app.services.profile_export import build_profile_archive, restore_profile_archive
 from app.services.profile_stats import (
     build_taste_breakdown,
+    category_label_matches,
     metadata_match_stat_target,
     movie_category_labels,
 )
@@ -753,7 +754,7 @@ def profile_descriptor_stat(
             category, ()
         )
         actual_label = next(
-            (label for label in labels if label.casefold() == requested_value.casefold()), None
+            (label for label in labels if category_label_matches(label, requested_value)), None
         )
         if actual_label is None:
             continue

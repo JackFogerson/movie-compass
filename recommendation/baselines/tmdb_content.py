@@ -40,6 +40,10 @@ def _display_structured_value(details: dict, prefix: str, token_value: str) -> s
             for item in details.get("credits", {}).get("crew", [])
             if item.get("job") == "Director"
         ]
+    elif prefix == "keyword":
+        rows = details.get("keywords", {}).get("keywords", [])
+    elif prefix == "genre":
+        rows = details.get("genres", [])
     else:
         return token_value.replace("_", " ")
     expected = f"{prefix}_{token_value}"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from math import sqrt
 from statistics import mean
@@ -102,6 +103,14 @@ def metadata_match_stat_target(match: str) -> tuple[str, str] | None:
     return None
 
 
+def category_label_matches(label: str, requested: str) -> bool:
+    """Match exact labels and legacy model labels that omitted punctuation."""
+    def normalize(value: str) -> str:
+        return re.sub(r"[^\w]+", " ", value.casefold()).strip()
+
+    return label.casefold() == requested.casefold() or normalize(label) == normalize(requested)
+
+
 def _summarize(
     values: dict[str, list[float]],
     profile_average: float,
@@ -157,7 +166,7 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
         )
     return {
         "genres": tuple(sorted(set(_named_values(details.get("genres"))))),
-        "themes": tuple(sorted({name.capitalize() for name in _named_values(keywords)[:24]})),
+        "themes": tuple(sorted({name.capitalize() for name in _named_values(keywords)})),
         "decades": (f"{int(year) // 10 * 10}s",) if year else (),
         "directors": tuple(
             sorted(
