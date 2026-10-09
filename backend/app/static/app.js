@@ -485,7 +485,12 @@ function renderMovie(movie, rankLabel = null) {
     groupScores.remove();
   }
   const explanationList = card.querySelector(".explanations");
-  const extraExplanations = movie.why_you_may_like_it || movie.explanation?.slice(1) || [];
+  const primaryExplanation = String(isGroup ? movie.group_reason : expectation.reason)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const extraExplanations = (movie.why_you_may_like_it || movie.explanation?.slice(1) || [])
+    .filter((value) => !primaryExplanation.includes(String(value).replace(/\s+/g, " ").trim().toLowerCase()));
   if (extraExplanations.length) {
     explanationList.innerHTML = extraExplanations
       .map((value) => `<li>${linkifyDescriptorText(value, positiveEntries)}</li>`)
