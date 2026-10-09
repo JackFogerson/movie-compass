@@ -125,6 +125,8 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
                 "10": {
                     "title": "Movie One",
                     "poster_path": "/movie-one.jpg",
+                    "production_countries": [{"name": "Canada"}],
+                    "genres": [{"name": "Drama"}],
                     "credits": {"cast": [{"name": "Only Actor"}], "crew": []},
                 }
             }
@@ -146,6 +148,14 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
         actor_category = client.get(
             "/profiles/target/stats/category",
             params={"category": "actors"},
+        )
+        country_movies = client.get(
+            "/profiles/target/stats/movies",
+            params={"category": "countries", "value": "Canada"},
+        )
+        descriptor = client.get(
+            "/profiles/target/stats/descriptor",
+            params={"match": "genre: drama"},
         )
         rejected = client.request("DELETE", "/profiles/target", json={"confirmation": "wrong"})
         deleted = client.request("DELETE", "/profiles/target", json={"confirmation": "Movie Fan"})
@@ -171,6 +181,13 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
     assert actor_category.json()["count"] == 1
     assert actor_category.json()["top"][0]["label"] == "Only Actor"
     assert actor_category.json()["bottom"] == []
+    assert country_movies.status_code == 200
+    assert country_movies.json()["count"] == 1
+    assert descriptor.status_code == 200
+    assert descriptor.json()["value"] == "Drama"
+    assert descriptor.json()["expected_rating"] == 4.0
+    assert descriptor.json()["observed_average"] == 4.0
+    assert descriptor.json()["movies"][0]["title"] == "Movie One"
     assert rejected.status_code == 422
     assert deleted.status_code == 200
     assert not ranking_dir.exists()

@@ -33,7 +33,11 @@ from app.services.letterboxd_import import import_letterboxd_archive
 from app.services.local_catalog_mapping import map_pending_from_artifact
 from app.services.profile_accuracy import profile_accuracy as evaluate_profile_accuracy
 from app.services.profile_export import build_profile_archive, restore_profile_archive
-from app.services.profile_stats import build_taste_breakdown, movie_category_labels
+from app.services.profile_stats import (
+    build_taste_breakdown,
+    metadata_match_stat_target,
+    movie_category_labels,
+)
 from app.services.recommendation_reports import (
     RecommendationReportNotFound,
     _latest_artifact,
@@ -566,6 +570,7 @@ def profile_stat_movies(
         "directors",
         "actors",
         "languages",
+        "countries",
         "runtimes",
         "popularity",
         "certifications",
@@ -647,6 +652,7 @@ def profile_stat_category(
         "directors",
         "actors",
         "languages",
+        "countries",
         "runtimes",
         "popularity",
         "certifications",
@@ -702,6 +708,91 @@ def profile_stat_category(
         "count": len(ranked),
         "top": ranked[:top_count],
         "bottom": list(reversed(ranked[-bottom_count:])) if bottom_count else [],
+    }
+
+
+@app.get("/profiles/{user}/stats/descriptor")
+def profile_descriptor_stat(
+    user: str,
+    match: str = Query(min_length=3, max_length=250),
+) -> dict:
+    """Explain one recommendation descriptor using this profile's rated films."""
+    from app.services.recommendation_reports import VALID_USER
+
+    target = metadata_match_stat_target(match)
+    if not VALID_USER.fullmatch(user):
+        raise HTTPException(status_code=422, detail="Invalid profile ID")
+    if target is None:
+        raise HTTPException(status_code=422, detail="This descriptor has no profile statistic")
+    category, requested_value = target
+    with SessionLocal() as session:
+        owner = session.scalar(select(User).where(User.slug == user))
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        rows = session.execute(
+            select(Movie, UserMovieInteraction)
+            .join(UserMovieInteraction, UserMovieInteraction.movie_id == Movie.id)
+            .where(
+                UserMovieInteraction.user_id == owner.id,
+                UserMovieInteraction.rating.is_not(None),
+            )
+            .order_by(
+                UserMovieInteraction.watched_date.desc(),
+                UserMovieInteraction.rating.desc(),
+                Movie.title,
+            )
+        ).all()
+    details_raw = _load_profile_detail_cache()
+    ratings = [float(interaction.rating) for _, interaction in rows]
+    profile_average = sum(ratings) / len(ratings) if ratings else 0.0
+    movies = []
+    resolved_value = requested_value
+    for movie, interaction in rows:
+        details = details_raw.get(str(movie.tmdb_id), {}) if movie.tmdb_id else {}
+        labels = movie_category_labels({"year": movie.year, "runtime": movie.runtime}, details).get(
+            category, ()
+        )
+        actual_label = next(
+            (label for label in labels if label.casefold() == requested_value.casefold()), None
+        )
+        if actual_label is None:
+            continue
+        resolved_value = actual_label
+        poster_path = movie.poster_path or details.get("poster_path")
+        movies.append(
+            {
+                "tmdb_id": movie.tmdb_id,
+                "title": movie.title,
+                "year": movie.year,
+                "rating": float(interaction.rating),
+                "watched_date": (
+                    interaction.watched_date.isoformat() if interaction.watched_date else None
+                ),
+                "review_text": interaction.review_text,
+                "poster_url": (
+                    f"https://image.tmdb.org/t/p/w185{poster_path}" if poster_path else None
+                ),
+            }
+        )
+    matching_ratings = [movie["rating"] for movie in movies]
+    observed_average = (
+        sum(matching_ratings) / len(matching_ratings) if matching_ratings else None
+    )
+    expected_rating = (
+        (sum(matching_ratings) + 3 * profile_average) / (len(matching_ratings) + 3)
+        if matching_ratings
+        else None
+    )
+    return {
+        "user": user,
+        "display_name": owner.display_name,
+        "category": category,
+        "value": resolved_value,
+        "count": len(movies),
+        "observed_average": round(observed_average, 2) if observed_average is not None else None,
+        "expected_rating": round(expected_rating, 2) if expected_rating is not None else None,
+        "profile_average": round(profile_average, 2) if ratings else None,
+        "movies": movies,
     }
 
 

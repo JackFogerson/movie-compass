@@ -1,4 +1,8 @@
-from app.services.profile_stats import build_taste_breakdown, movie_category_labels
+from app.services.profile_stats import (
+    build_taste_breakdown,
+    metadata_match_stat_target,
+    movie_category_labels,
+)
 
 
 def test_language_stats_use_readable_consistent_labels() -> None:
@@ -17,6 +21,30 @@ def test_language_stats_use_readable_consistent_labels() -> None:
         assert result["languages"] == (label,)
 
 
+def test_production_countries_and_ranking_descriptors_use_stats_labels() -> None:
+    labels = movie_category_labels(
+        {},
+        {
+            "original_language": "fr",
+            "production_countries": [
+                {"iso_3166_1": "FR", "name": "France"},
+                {"iso_3166_1": "IT", "name": "Italy"},
+            ],
+        },
+    )
+
+    assert labels["countries"] == ("France", "Italy")
+    assert metadata_match_stat_target("genre: crime") == ("genres", "crime")
+    assert metadata_match_stat_target("story/theme: organized crime") == (
+        "themes",
+        "organized crime",
+    )
+    assert metadata_match_stat_target("original language: fr") == (
+        "languages",
+        "French-language",
+    )
+
+
 def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -> None:
     movies = [
         {"tmdb_id": 1, "rating": 5.0, "year": 1999, "runtime": 100},
@@ -28,6 +56,7 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "genres": [{"name": "Science Fiction"}],
             "keywords": {"keywords": [{"name": "space travel"}]},
             "original_language": "en",
+            "production_countries": [{"name": "United States of America"}],
             "vote_count": 15_000,
             "credits": {"cast": [{"name": "Favorite Actor"}]},
             "release_dates": {
@@ -40,6 +69,7 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "genres": [{"name": "Science Fiction"}],
             "keywords": {"keywords": [{"name": "space travel"}]},
             "original_language": "en",
+            "production_countries": [{"name": "United States of America"}],
             "vote_count": 12_000,
             "credits": {"cast": [{"name": "Favorite Actor"}]},
             "release_dates": {
@@ -52,6 +82,7 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "genres": [{"name": "Drama"}],
             "keywords": {"keywords": [{"name": "grief"}]},
             "original_language": "fr",
+            "production_countries": [{"name": "France"}],
             "vote_count": 30,
             "credits": {"cast": [{"name": "Another Actor"}]},
         },
@@ -66,10 +97,12 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
     assert result["actors"][0]["label"] == "Favorite Actor"
     assert result["popularity"][0]["label"] == "Blockbusters"
     assert result["certifications"][0]["label"] == "PG-13"
+    assert result["countries"][0]["label"] == "United States of America"
     assert result["fun_facts"]["certification_known_films"] == 2
     assert result["fun_facts"]["certification_unknown_films"] == 1
     assert result["fun_facts"]["certification_coverage_percent"] == 66.7
     assert result["fun_facts"]["decades_explored"] == 2
+    assert result["fun_facts"]["countries_explored"] == 2
 
 
 def test_full_taste_breakdown_keeps_singletons_without_truncation() -> None:

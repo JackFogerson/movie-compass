@@ -76,6 +76,28 @@ def _language_label(value: object) -> str:
     return LANGUAGE_NAMES.get(code, f"{code.upper()}-language (unrecognized code)")
 
 
+def metadata_match_stat_target(match: str) -> tuple[str, str] | None:
+    """Map a ranking explanation token to its matching profile-stat category."""
+    kind, separator, raw_value = str(match).partition(":")
+    if not separator or not raw_value.strip():
+        return None
+    value = raw_value.strip()
+    kind = kind.strip().casefold()
+    if kind == "genre":
+        return "genres", value
+    if kind == "story/theme":
+        return "themes", value
+    if kind == "director":
+        return "directors", value
+    if kind == "cast member":
+        return "actors", value
+    if kind == "release era":
+        return "decades", value
+    if kind == "original language":
+        return "languages", _language_label(value)
+    return None
+
+
 def _summarize(
     values: dict[str, list[float]],
     profile_average: float,
@@ -146,6 +168,7 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
         ),
         "actors": tuple(sorted(set(_named_values(cast)[:8]))),
         "languages": (language,),
+        "countries": tuple(sorted(set(_named_values(details.get("production_countries"))))),
         "runtimes": (runtime_label,) if runtime_label else (),
         "popularity": (
             POPULARITY_NAMES[classify_popularity(int(year) if year else None, vote_count)],
@@ -174,6 +197,7 @@ def build_taste_breakdown(
             "directors",
             "actors",
             "languages",
+            "countries",
             "runtimes",
             "popularity",
             "certifications",
@@ -214,6 +238,9 @@ def build_taste_breakdown(
         "languages": _summarize(
             categories["languages"], profile_average, minimum=repeated_minimum, limit=limit
         ),
+        "countries": _summarize(
+            categories["countries"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
         "runtimes": _summarize(
             categories["runtimes"], profile_average, minimum=repeated_minimum, limit=limit
         ),
@@ -230,6 +257,7 @@ def build_taste_breakdown(
             "genres_explored": len(categories["genres"]),
             "decades_explored": len(categories["decades"]),
             "languages_explored": len(categories["languages"]),
+            "countries_explored": len(categories["countries"]),
             "certification_known_films": known_certifications,
             "certification_unknown_films": unknown_certifications,
             "certification_coverage_percent": round(

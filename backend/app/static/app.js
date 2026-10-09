@@ -66,6 +66,8 @@ const manageProfileSelect = document.querySelector("#manage-profile-select");
 const profileManagementHost = document.querySelector("#profile-management-host");
 const profilesEmptyState = document.querySelector("#profiles-empty-state");
 const emptyProfileState = document.querySelector("#empty-profile-state");
+const descriptorStatsCache = new Map();
+let descriptorTooltip;
 const profileArchiveInput = document.querySelector("#profile-archive");
 const importButton = document.querySelector("#import-profile");
 const importStatus = document.querySelector("#import-status");
@@ -251,6 +253,95 @@ function renderStreaming(movie) {
   return container.innerHTML;
 }
 
+function descriptorDisplay(match) {
+  const [rawKind, ...valueParts] = String(match).split(":");
+  const kind = rawKind.trim().toLowerCase();
+  const value = valueParts.join(":").trim();
+  const titleCase = value.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  if (kind === "genre") return `${titleCase} films`;
+  if (kind === "story/theme") return `Stories involving ${value}`;
+  if (kind === "director") return `Directed by ${titleCase}`;
+  if (kind === "cast member") return `Featuring ${titleCase}`;
+  if (kind === "release era") return `Films from the ${value}`;
+  if (kind === "original language") return `${value.toUpperCase()}-language films`;
+  return value || match;
+}
+
+function descriptorStat(match) {
+  const key = `${user}|${match}`;
+  if (!descriptorStatsCache.has(key)) {
+    descriptorStatsCache.set(key, fetch(
+      `/profiles/${encodeURIComponent(user)}/stats/descriptor?match=${encodeURIComponent(match)}`,
+    ).then(async (response) => {
+      const result = await responseJson(response);
+      if (!response.ok) throw new Error(result.detail || "Taste detail could not be loaded");
+      return result;
+    }));
+  }
+  return descriptorStatsCache.get(key);
+}
+
+function hideDescriptorTooltip(button) {
+  button.dataset.tooltipVisible = "false";
+  if (descriptorTooltip) descriptorTooltip.hidden = true;
+}
+
+async function showDescriptorTooltip(button) {
+  button.dataset.tooltipVisible = "true";
+  if (!descriptorTooltip) {
+    descriptorTooltip = document.createElement("div");
+    descriptorTooltip.className = "descriptor-tooltip";
+    descriptorTooltip.hidden = true;
+    document.body.append(descriptorTooltip);
+  }
+  descriptorTooltip.innerHTML = "<strong>Loading your taste history…</strong>";
+  descriptorTooltip.hidden = false;
+  const place = () => {
+    const rect = button.getBoundingClientRect();
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - descriptorTooltip.offsetWidth - 12));
+    const above = rect.top - descriptorTooltip.offsetHeight - 8;
+    descriptorTooltip.style.left = `${left}px`;
+    descriptorTooltip.style.top = `${above > 8 ? above : rect.bottom + 8}px`;
+  };
+  place();
+  try {
+    const result = await descriptorStat(button.dataset.match);
+    if (button.dataset.tooltipVisible !== "true") return;
+    const examples = result.movies.slice(0, 5).map((movie) => `${movie.title} (${movie.rating.toFixed(1)} ★)`).join(" · ");
+    descriptorTooltip.innerHTML = result.count
+      ? `<strong>${escapeHtml(result.value)}</strong><span>Expected for you: ${result.expected_rating.toFixed(2)} ★ · your actual average: ${result.observed_average.toFixed(2)} ★ · ${result.count} rated film${result.count === 1 ? "" : "s"}</span><span class="descriptor-films">${escapeHtml(examples)}${result.count > 5 ? " · …" : ""}</span><span>Click to see every matching movie.</span>`
+      : `<strong>${escapeHtml(result.value)}</strong><span>No rated films in this profile currently carry this exact descriptor.</span>`;
+    place();
+  } catch (error) {
+    if (button.dataset.tooltipVisible === "true") {
+      descriptorTooltip.innerHTML = `<strong>${escapeHtml(error.message)}</strong>`;
+      place();
+    }
+  }
+}
+
+async function showDescriptorMovies(button) {
+  try {
+    const result = await descriptorStat(button.dataset.match);
+    closeStatMoviesButton.textContent = "Close";
+    statMoviesTitle.textContent = result.value;
+    statMoviesSummary.textContent = result.count
+      ? `${result.count} rated movie${result.count === 1 ? "" : "s"} · expected ${result.expected_rating.toFixed(2)} ★ · actual average ${result.observed_average.toFixed(2)} ★.`
+      : "No rated movies match this descriptor yet.";
+    statMoviesList.innerHTML = result.movies.length
+      ? result.movies.map((item) => `
+          <article class="rating-history-row">
+            ${item.poster_url ? `<img src="${escapeHtml(item.poster_url)}" alt="" loading="lazy" />` : '<span class="rating-history-poster-placeholder"></span>'}
+            <div class="rating-history-copy"><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.year ?? "Year unavailable")}${item.watched_date ? ` · watched ${escapeHtml(item.watched_date)}` : ""}</span></div>${item.review_text ? `<p>${escapeHtml(item.review_text)}</p>` : ""}</div>
+            <div class="rating-history-score"><strong>${item.rating.toFixed(1)}</strong><span>★ / 5</span></div>
+          </article>`).join("")
+      : '<div class="empty">No rated movies match this descriptor.</div>';
+    statMoviesDialog.showModal();
+  } catch (error) {
+    searchStatus.textContent = error.message;
+  }
+}
+
 function renderMovie(movie, rankLabel = null) {
   const card = template.content.firstElementChild.cloneNode(true);
   card.querySelector(".rank").textContent = rankLabel || `#${movie.rank}`;
@@ -297,6 +388,20 @@ function renderMovie(movie, rankLabel = null) {
   card.querySelector(".expectation-reason").textContent = isGroup
     ? movie.group_reason
     : expectation.reason;
+  const descriptorHost = card.querySelector(".taste-descriptors");
+  const descriptorMatches = !isGroup ? (movie.metadata_matches || []).slice(0, 8) : [];
+  if (descriptorMatches.length) {
+    descriptorHost.innerHTML = descriptorMatches.map((match) => `<button type="button" class="taste-descriptor" data-match="${escapeHtml(match)}">${escapeHtml(descriptorDisplay(match))}</button>`).join("");
+    descriptorHost.querySelectorAll(".taste-descriptor").forEach((button) => {
+      button.addEventListener("mouseenter", () => showDescriptorTooltip(button));
+      button.addEventListener("mouseleave", () => hideDescriptorTooltip(button));
+      button.addEventListener("focus", () => showDescriptorTooltip(button));
+      button.addEventListener("blur", () => hideDescriptorTooltip(button));
+      button.addEventListener("click", () => showDescriptorMovies(button));
+    });
+  } else {
+    descriptorHost.remove();
+  }
   const groupScores = card.querySelector(".group-scores");
   if (isGroup) {
     groupScores.innerHTML = movie.individual_scores.map((item) => `
@@ -640,6 +745,7 @@ async function showProfileStats() {
           ${tasteRows("Directors", "directors", taste.directors)}
           ${tasteRows("Actors", "actors", taste.actors)}
           ${tasteRows("Languages", "languages", taste.languages)}
+          ${tasteRows("Production countries", "countries", taste.countries)}
           ${tasteRows("Runtime", "runtimes", taste.runtimes)}
           ${tasteRows("Movie popularity", "popularity", taste.popularity)}
           ${tasteRows("US content ratings", "certifications", taste.certifications)}
@@ -665,6 +771,7 @@ async function showProfileStats() {
       value("Genres explored", facts.genres_explored),
       value("Decades explored", facts.decades_explored),
       value("Languages explored", facts.languages_explored),
+      value("Production countries explored", facts.countries_explored),
       value(
         "US content ratings found",
         facts.certification_coverage_percent == null
