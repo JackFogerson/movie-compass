@@ -253,25 +253,38 @@ function renderStreaming(movie) {
   return container.innerHTML;
 }
 
-function descriptorDisplay(match) {
+function descriptorPhrases(match) {
   const [rawKind, ...valueParts] = String(match).split(":");
   const kind = rawKind.trim().toLowerCase();
   const value = valueParts.join(":").trim();
   const titleCase = value.replace(/\b\w/g, (letter) => letter.toUpperCase());
-  if (kind === "genre") return `${titleCase} films`;
-  if (kind === "story/theme") return `Stories involving ${value}`;
-  if (kind === "director") return `Directed by ${titleCase}`;
-  if (kind === "cast member") return `Featuring ${titleCase}`;
-  if (kind === "release era") return `Films from the ${value}`;
-  if (kind === "original language") return `${value.toUpperCase()}-language films`;
-  return value || match;
+  if (kind === "genre") return [`${value} films`];
+  if (kind === "story/theme") return [
+    `stories involving ${value}`,
+    `stories centered on ${value}`,
+    `period stories set in the ${value}`,
+  ];
+  if (kind === "director") return [
+    `films directed by ${titleCase}`,
+    `${titleCase}'s films`,
+  ];
+  if (kind === "cast member") return [`films featuring ${titleCase}`];
+  if (kind === "release era") return [`films from the ${value}`, `movies from the ${value}`];
+  if (kind === "original language") {
+    const languageNames = { de: "German", es: "Spanish", fr: "French", it: "Italian", ja: "Japanese", ko: "Korean", zh: "Chinese" };
+    return [
+      `${value.toUpperCase()}-language films`,
+      `${languageNames[value.toLowerCase()] || value.toUpperCase()}-language films`,
+    ];
+  }
+  return [value || match];
 }
 
-function descriptorStat(match) {
-  const key = `${user}|${match}`;
+function descriptorStat(profile, match) {
+  const key = `${profile}|${match}`;
   if (!descriptorStatsCache.has(key)) {
     descriptorStatsCache.set(key, fetch(
-      `/profiles/${encodeURIComponent(user)}/stats/descriptor?match=${encodeURIComponent(match)}`,
+      `/profiles/${encodeURIComponent(profile)}/stats/descriptor?match=${encodeURIComponent(match)}`,
     ).then(async (response) => {
       const result = await responseJson(response);
       if (!response.ok) throw new Error(result.detail || "Taste detail could not be loaded");
@@ -279,6 +292,51 @@ function descriptorStat(match) {
     }));
   }
   return descriptorStatsCache.get(key);
+}
+
+function descriptorEntries(items) {
+  const merged = new Map();
+  items.forEach(({ match, users }) => {
+    if (!match) return;
+    const current = merged.get(match) || new Set();
+    users.filter(Boolean).forEach((profile) => current.add(profile));
+    merged.set(match, current);
+  });
+  return [...merged].map(([match, profiles]) => ({ match, users: [...profiles] }));
+}
+
+function linkifyDescriptorText(text, entries) {
+  const source = String(text || "");
+  const candidates = [];
+  descriptorEntries(entries).forEach((entry) => {
+    descriptorPhrases(entry.match).forEach((phrase) => {
+      if (phrase) candidates.push({ ...entry, phrase });
+    });
+  });
+  candidates.sort((left, right) => right.phrase.length - left.phrase.length);
+  const spans = [];
+  candidates.forEach((candidate) => {
+    const needle = candidate.phrase.toLowerCase();
+    let start = source.toLowerCase().indexOf(needle);
+    while (start !== -1) {
+      const end = start + needle.length;
+      if (!spans.some((span) => start < span.end && end > span.start)) {
+        spans.push({ start, end, match: candidate.match, users: candidate.users });
+      }
+      start = source.toLowerCase().indexOf(needle, end);
+    }
+  });
+  spans.sort((left, right) => left.start - right.start);
+  if (!spans.length) return escapeHtml(source);
+  let cursor = 0;
+  const html = [];
+  spans.forEach((span) => {
+    html.push(escapeHtml(source.slice(cursor, span.start)));
+    html.push(`<button type="button" class="descriptor-link" data-match="${escapeHtml(span.match)}" data-users="${escapeHtml(span.users.join(","))}">${escapeHtml(source.slice(span.start, span.end))}</button>`);
+    cursor = span.end;
+  });
+  html.push(escapeHtml(source.slice(cursor)));
+  return html.join("");
 }
 
 function hideDescriptorTooltip(button) {
@@ -305,12 +363,17 @@ async function showDescriptorTooltip(button) {
   };
   place();
   try {
-    const result = await descriptorStat(button.dataset.match);
+    const profiles = button.dataset.users.split(",").filter(Boolean);
+    const results = await Promise.all(profiles.map((profile) => descriptorStat(profile, button.dataset.match)));
     if (button.dataset.tooltipVisible !== "true") return;
-    const examples = result.movies.slice(0, 5).map((movie) => `${movie.title} (${movie.rating.toFixed(1)} ★)`).join(" · ");
-    descriptorTooltip.innerHTML = result.count
-      ? `<strong>${escapeHtml(result.value)}</strong><span>Expected for you: ${result.expected_rating.toFixed(2)} ★ · your actual average: ${result.observed_average.toFixed(2)} ★ · ${result.count} rated film${result.count === 1 ? "" : "s"}</span><span class="descriptor-films">${escapeHtml(examples)}${result.count > 5 ? " · …" : ""}</span><span>Click to see every matching movie.</span>`
-      : `<strong>${escapeHtml(result.value)}</strong><span>No rated films in this profile currently carry this exact descriptor.</span>`;
+    const heading = results.find((result) => result.value)?.value || button.textContent;
+    const rows = results.map((result) => {
+      const examples = result.movies.slice(0, profiles.length > 1 ? 2 : 5).map((movie) => `${movie.title} (${movie.rating.toFixed(1)} ★)`).join(" · ");
+      return result.count
+        ? `<span><b>${escapeHtml(result.display_name)}:</b> average ${result.observed_average.toFixed(2)} ★ across ${result.count} rated film${result.count === 1 ? "" : "s"}</span><span class="descriptor-films">${escapeHtml(examples)}${result.count > (profiles.length > 1 ? 2 : 5) ? " · …" : ""}</span>`
+        : `<span><b>${escapeHtml(result.display_name)}:</b> no rated films with this exact descriptor</span>`;
+    }).join("");
+    descriptorTooltip.innerHTML = `<strong>${escapeHtml(heading)}</strong>${rows}<span>Click to see all matching movies.</span>`;
     place();
   } catch (error) {
     if (button.dataset.tooltipVisible === "true") {
@@ -322,24 +385,39 @@ async function showDescriptorTooltip(button) {
 
 async function showDescriptorMovies(button) {
   try {
-    const result = await descriptorStat(button.dataset.match);
+    const profiles = button.dataset.users.split(",").filter(Boolean);
+    const results = await Promise.all(profiles.map((profile) => descriptorStat(profile, button.dataset.match)));
+    const first = results[0];
     closeStatMoviesButton.textContent = "Close";
-    statMoviesTitle.textContent = result.value;
-    statMoviesSummary.textContent = result.count
-      ? `${result.count} rated movie${result.count === 1 ? "" : "s"} · expected ${result.expected_rating.toFixed(2)} ★ · actual average ${result.observed_average.toFixed(2)} ★.`
-      : "No rated movies match this descriptor yet.";
-    statMoviesList.innerHTML = result.movies.length
-      ? result.movies.map((item) => `
+    statMoviesTitle.textContent = first?.value || button.textContent;
+    statMoviesSummary.textContent = profiles.length > 1
+      ? "Each group member's own ratings for this descriptor."
+      : first.count
+        ? `${first.count} rated movie${first.count === 1 ? "" : "s"} · actual average ${first.observed_average.toFixed(2)} ★.`
+        : "No rated movies match this descriptor yet.";
+    statMoviesList.innerHTML = results.map((result) => `
+      ${profiles.length > 1 ? `<h3 class="descriptor-profile-heading">${escapeHtml(result.display_name)} · ${result.count ? `${result.observed_average.toFixed(2)} ★ average from ${result.count}` : "no matching ratings"}</h3>` : ""}
+      ${result.movies.length ? result.movies.map((item) => `
           <article class="rating-history-row">
             ${item.poster_url ? `<img src="${escapeHtml(item.poster_url)}" alt="" loading="lazy" />` : '<span class="rating-history-poster-placeholder"></span>'}
             <div class="rating-history-copy"><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.year ?? "Year unavailable")}${item.watched_date ? ` · watched ${escapeHtml(item.watched_date)}` : ""}</span></div>${item.review_text ? `<p>${escapeHtml(item.review_text)}</p>` : ""}</div>
             <div class="rating-history-score"><strong>${item.rating.toFixed(1)}</strong><span>★ / 5</span></div>
-          </article>`).join("")
-      : '<div class="empty">No rated movies match this descriptor.</div>';
+          </article>`).join("") : '<div class="empty compact-empty">No rated movies match this descriptor.</div>'}
+    `).join("");
     statMoviesDialog.showModal();
   } catch (error) {
     searchStatus.textContent = error.message;
   }
+}
+
+function bindDescriptorLinks(card) {
+  card.querySelectorAll(".descriptor-link").forEach((button) => {
+    button.addEventListener("mouseenter", () => showDescriptorTooltip(button));
+    button.addEventListener("mouseleave", () => hideDescriptorTooltip(button));
+    button.addEventListener("focus", () => showDescriptorTooltip(button));
+    button.addEventListener("blur", () => hideDescriptorTooltip(button));
+    button.addEventListener("click", () => showDescriptorMovies(button));
+  });
 }
 
 function renderMovie(movie, rankLabel = null) {
@@ -385,30 +463,23 @@ function renderMovie(movie, rankLabel = null) {
   }
   card.querySelector(".badges").innerHTML = badges.join("");
   card.querySelector(".streaming-info").innerHTML = renderStreaming(movie);
-  card.querySelector(".expectation-reason").textContent = isGroup
-    ? movie.group_reason
-    : expectation.reason;
-  const descriptorHost = card.querySelector(".taste-descriptors");
-  const descriptorMatches = !isGroup ? (movie.metadata_matches || []).slice(0, 8) : [];
-  if (descriptorMatches.length) {
-    descriptorHost.innerHTML = descriptorMatches.map((match) => `<button type="button" class="taste-descriptor" data-match="${escapeHtml(match)}">${escapeHtml(descriptorDisplay(match))}</button>`).join("");
-    descriptorHost.querySelectorAll(".taste-descriptor").forEach((button) => {
-      button.addEventListener("mouseenter", () => showDescriptorTooltip(button));
-      button.addEventListener("mouseleave", () => hideDescriptorTooltip(button));
-      button.addEventListener("focus", () => showDescriptorTooltip(button));
-      button.addEventListener("blur", () => hideDescriptorTooltip(button));
-      button.addEventListener("click", () => showDescriptorMovies(button));
-    });
-  } else {
-    descriptorHost.remove();
-  }
+  const positiveEntries = isGroup
+    ? movie.individual_scores.flatMap((item) => (item.positive_matches || []).map((match) => ({ match, users: [item.user] })))
+    : (movie.metadata_matches || []).map((match) => ({ match, users: [user] }));
+  const cautionEntries = isGroup
+    ? movie.individual_scores.flatMap((item) => (item.caution_matches || []).map((match) => ({ match, users: [item.user] })))
+    : (movie.caution_matches || []).map((match) => ({ match, users: [user] }));
+  card.querySelector(".expectation-reason").innerHTML = linkifyDescriptorText(
+    isGroup ? movie.group_reason : expectation.reason,
+    positiveEntries,
+  );
   const groupScores = card.querySelector(".group-scores");
   if (isGroup) {
     groupScores.innerHTML = movie.individual_scores.map((item) => `
       <div class="group-score-person">
         <b>${escapeHtml(item.display_name || item.user)}</b> · <strong>${Number.isFinite(Number(item.expected_rating)) ? Number(item.expected_rating).toFixed(2) : "—"}</strong>
         <span>${Number.isFinite(Number(item.plausible_minimum)) && Number.isFinite(Number(item.plausible_maximum)) ? `${Number(item.plausible_minimum).toFixed(1)}–${Number(item.plausible_maximum).toFixed(1)} plausible` : "Range unavailable"}</span>
-        <span>${escapeHtml(item.reason)}</span>
+        <span>${linkifyDescriptorText(item.reason, (item.positive_matches || []).map((match) => ({ match, users: [item.user] })))}</span>
       </div>`).join("");
   } else {
     groupScores.remove();
@@ -417,7 +488,7 @@ function renderMovie(movie, rankLabel = null) {
   const extraExplanations = movie.why_you_may_like_it || movie.explanation?.slice(1) || [];
   if (extraExplanations.length) {
     explanationList.innerHTML = extraExplanations
-      .map((value) => `<li>${escapeHtml(value)}</li>`)
+      .map((value) => `<li>${linkifyDescriptorText(value, positiveEntries)}</li>`)
       .join("");
   } else {
     explanationList.remove();
@@ -429,7 +500,7 @@ function renderMovie(movie, rankLabel = null) {
       ? "What might not work for the group"
       : "What might not click for you";
     riskBlock.querySelector(".cautions").innerHTML = cautions
-      .map((value) => `<li>${escapeHtml(value)}</li>`)
+      .map((value) => `<li>${linkifyDescriptorText(value, cautionEntries)}</li>`)
       .join("");
   } else {
     riskBlock.remove();
@@ -451,6 +522,7 @@ function renderMovie(movie, rankLabel = null) {
     metadata.remove();
   }
   card.querySelector(".score-grid").innerHTML = scoreEvidence(movie);
+  bindDescriptorLinks(card);
   return card;
 }
 

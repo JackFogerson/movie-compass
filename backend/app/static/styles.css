@@ -382,13 +382,14 @@ button:disabled { cursor: not-allowed; opacity: .66; }
 .movie-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 22px; margin-top: 8px; }
 .movie-copy { min-width: 0; }
 .expectation-reason { max-width: 850px; margin: 10px 0; color: #c8ced5; font-size: .9rem; line-height: 1.6; }
-.taste-descriptors { display: flex; flex-wrap: wrap; gap: 6px; margin: -1px 0 9px; }
-.taste-descriptor { padding: 3px 7px; color: #bcd8ee; border: 1px solid #385b78; border-radius: 99px; background: rgba(56, 91, 120, .12); font: inherit; font-size: .7rem; text-transform: none; letter-spacing: 0; cursor: help; }
-.taste-descriptor:hover, .taste-descriptor:focus-visible { color: #fff; border-color: var(--blue); background: rgba(76, 144, 199, .17); transform: none; }
+button.descriptor-link { display: inline; min-height: 0; padding: 0; color: var(--blue); border: 0; border-radius: 0; background: transparent; font: inherit; font-weight: inherit; text-align: inherit; text-transform: none; letter-spacing: inherit; text-decoration: underline; text-decoration-color: rgba(104, 176, 230, .42); text-underline-offset: 2px; cursor: help; }
+button.descriptor-link:hover, button.descriptor-link:focus-visible { color: #a8d8fb; border: 0; background: transparent; filter: none; transform: none; text-decoration-color: currentColor; }
 .descriptor-tooltip { position: fixed; z-index: 1000; width: min(330px, calc(100vw - 24px)); padding: 11px 12px; color: #dce4eb; border: 1px solid #49667e; border-radius: 9px; background: #111820; box-shadow: 0 12px 34px rgba(0, 0, 0, .45); font-size: .73rem; line-height: 1.45; pointer-events: none; }
 .descriptor-tooltip strong, .descriptor-tooltip span { display: block; }
+.descriptor-tooltip b { color: #e8edf2; }
 .descriptor-tooltip span { margin-top: 3px; color: var(--muted); }
 .descriptor-tooltip .descriptor-films { margin-top: 7px; color: #c5d0d9; }
+.descriptor-profile-heading { margin: 20px 0 8px; color: var(--gold); font-size: .83rem; }
 .explanations { margin: 7px 0 0; padding-left: 18px; color: var(--muted); font-size: .82rem; line-height: 1.5; }
 .risk-explanation { margin: 10px 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
 .risk-explanation strong { color: inherit; }
