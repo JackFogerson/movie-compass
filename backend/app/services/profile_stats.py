@@ -8,16 +8,47 @@ from app.services.certifications import UNKNOWN_CERTIFICATION, us_certification
 from recommendation.ranking.current_catalog import classify_popularity
 
 LANGUAGE_NAMES = {
+    "aa": "Afar-language",
+    "ab": "Abkhazian-language",
+    "af": "Afrikaans-language",
+    "ar": "Arabic-language",
+    "bn": "Bengali-language",
+    "cn": "Cantonese-language",
+    "cs": "Czech-language",
+    "da": "Danish-language",
+    "de": "German-language",
+    "el": "Greek-language",
     "en": "English-language",
     "es": "Spanish-language",
+    "fa": "Persian-language",
+    "fi": "Finnish-language",
     "fr": "French-language",
-    "de": "German-language",
+    "he": "Hebrew-language",
+    "hi": "Hindi-language",
+    "hu": "Hungarian-language",
+    "id": "Indonesian-language",
     "it": "Italian-language",
     "ja": "Japanese-language",
+    "kn": "Kannada-language",
     "ko": "Korean-language",
-    "zh": "Chinese-language",
-    "hi": "Hindi-language",
+    "lv": "Latvian-language",
+    "mk": "Macedonian-language",
+    "nl": "Dutch-language",
+    "no": "Norwegian-language",
+    "pl": "Polish-language",
     "pt": "Portuguese-language",
+    "ru": "Russian-language",
+    "sh": "Serbo-Croatian-language",
+    "sr": "Serbian-language",
+    "sv": "Swedish-language",
+    "ta": "Tamil-language",
+    "te": "Telugu-language",
+    "th": "Thai-language",
+    "tl": "Tagalog-language",
+    "tr": "Turkish-language",
+    "xx": "No spoken language",
+    "zxx": "No spoken language",
+    "zh": "Chinese-language",
 }
 POPULARITY_NAMES = {
     "blockbuster": "Blockbusters",
@@ -36,6 +67,13 @@ def _named_values(values: object) -> list[str]:
         for value in values
         if isinstance(value, dict) and str(value.get("name") or "").strip()
     ]
+
+
+def _language_label(value: object) -> str:
+    code = str(value or "").strip().casefold()
+    if not code:
+        return "Language not listed"
+    return LANGUAGE_NAMES.get(code, f"{code.upper()}-language (unrecognized code)")
 
 
 def _summarize(
@@ -77,7 +115,7 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
     keywords = keyword_block.get("keywords", []) if isinstance(keyword_block, dict) else []
     crew = (details.get("credits") or {}).get("crew", [])
     cast = (details.get("credits") or {}).get("cast", [])
-    language = str(details.get("original_language") or "").lower()
+    language = _language_label(details.get("original_language"))
     vote_count = int(details.get("vote_count") or 0)
     runtime_label = None
     if runtime:
@@ -107,7 +145,7 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
             )
         ),
         "actors": tuple(sorted(set(_named_values(cast)[:8]))),
-        "languages": (LANGUAGE_NAMES.get(language, language.upper()),) if language else (),
+        "languages": (language,),
         "runtimes": (runtime_label,) if runtime_label else (),
         "popularity": (
             POPULARITY_NAMES[classify_popularity(int(year) if year else None, vote_count)],

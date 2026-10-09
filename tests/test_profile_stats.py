@@ -1,4 +1,20 @@
-from app.services.profile_stats import build_taste_breakdown
+from app.services.profile_stats import build_taste_breakdown, movie_category_labels
+
+
+def test_language_stats_use_readable_consistent_labels() -> None:
+    expected = {
+        "en": "English-language",
+        "lv": "Latvian-language",
+        "aa": "Afar-language",
+        "ab": "Abkhazian-language",
+        "xx": "No spoken language",
+        "": "Language not listed",
+        "qz": "QZ-language (unrecognized code)",
+    }
+
+    for code, label in expected.items():
+        result = movie_category_labels({}, {"original_language": code})
+        assert result["languages"] == (label,)
 
 
 def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -> None:
