@@ -157,6 +157,7 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
             "/profiles/target/stats/descriptor",
             params={"match": "genre: drama"},
         )
+        seen_people = client.get("/profiles/target/stats/people")
         rejected = client.request("DELETE", "/profiles/target", json={"confirmation": "wrong"})
         deleted = client.request("DELETE", "/profiles/target", json={"confirmation": "Movie Fan"})
     finally:
@@ -188,6 +189,9 @@ def test_profile_can_be_renamed_and_deleted(tmp_path: Path, monkeypatch) -> None
     assert descriptor.json()["expected_rating"] == 4.0
     assert descriptor.json()["observed_average"] == 4.0
     assert descriptor.json()["movies"][0]["title"] == "Movie One"
+    assert seen_people.status_code == 200
+    assert seen_people.json()["actors"] == ["Only Actor"]
+    assert seen_people.json()["directors"] == []
     assert rejected.status_code == 422
     assert deleted.status_code == 200
     assert not ranking_dir.exists()

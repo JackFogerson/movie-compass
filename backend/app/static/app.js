@@ -67,6 +67,7 @@ const profileManagementHost = document.querySelector("#profile-management-host")
 const profilesEmptyState = document.querySelector("#profiles-empty-state");
 const emptyProfileState = document.querySelector("#empty-profile-state");
 const descriptorStatsCache = new Map();
+const seenPeopleCache = new Map();
 let descriptorTooltip;
 const profileArchiveInput = document.querySelector("#profile-archive");
 const importButton = document.querySelector("#import-profile");
@@ -420,6 +421,54 @@ function bindDescriptorLinks(card) {
   });
 }
 
+function seenPeople(profile) {
+  if (!seenPeopleCache.has(profile)) {
+    seenPeopleCache.set(profile, fetch(
+      `/profiles/${encodeURIComponent(profile)}/stats/people`,
+    ).then(async (response) => {
+      const result = await responseJson(response);
+      if (!response.ok) throw new Error(result.detail || "Seen cast and directors could not be loaded");
+      return {
+        user: profile,
+        directors: new Set((result.directors || []).map((name) => name.toLowerCase())),
+        actors: new Set((result.actors || []).map((name) => name.toLowerCase())),
+      };
+    }));
+  }
+  return seenPeopleCache.get(profile);
+}
+
+async function enhanceMetadataPeople(card, movie, profiles) {
+  const profilePeople = await Promise.all(profiles.map(seenPeople));
+  const groups = [
+    { selector: "[data-metadata-people='directors']", names: movie.directors || [], category: "directors", matchKind: "director" },
+    { selector: "[data-metadata-people='actors']", names: movie.cast || [], category: "actors", matchKind: "cast member" },
+  ];
+  groups.forEach(({ selector, names, category, matchKind }) => {
+    const host = card.querySelector(selector);
+    if (!host) return;
+    host.replaceChildren();
+    names.forEach((name, index) => {
+      if (index) host.append(document.createTextNode(", "));
+      const relevantProfiles = profilePeople
+        .filter((item) => item[category].has(name.toLowerCase()))
+        .map((item) => item.user);
+      if (!relevantProfiles.length) {
+        host.append(document.createTextNode(name));
+        return;
+      }
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "descriptor-link";
+      link.dataset.match = `${matchKind}: ${name.toLowerCase()}`;
+      link.dataset.users = relevantProfiles.join(",");
+      link.textContent = name;
+      host.append(link);
+    });
+    bindDescriptorLinks(host);
+  });
+}
+
 function renderMovie(movie, rankLabel = null) {
   const card = template.content.firstElementChild.cloneNode(true);
   card.querySelector(".rank").textContent = rankLabel || `#${movie.rank}`;
@@ -513,10 +562,10 @@ function renderMovie(movie, rankLabel = null) {
   const metadata = card.querySelector(".movie-metadata");
   const metadataRows = [];
   if (movie.directors?.length) {
-    metadataRows.push(`<p><b>Director:</b> ${escapeHtml(movie.directors.join(", "))}</p>`);
+    metadataRows.push(`<p><b>Director:</b> <span data-metadata-people="directors">${escapeHtml(movie.directors.join(", "))}</span></p>`);
   }
   if (movie.cast?.length) {
-    metadataRows.push(`<p><b>Cast:</b> ${escapeHtml(movie.cast.join(", "))}</p>`);
+    metadataRows.push(`<p><b>Cast:</b> <span data-metadata-people="actors">${escapeHtml(movie.cast.join(", "))}</span></p>`);
   }
   if (movie.synopsis) {
     metadataRows.push(`<p><b>Synopsis:</b> ${escapeHtml(movie.synopsis)}</p>`);
@@ -528,6 +577,8 @@ function renderMovie(movie, rankLabel = null) {
   }
   card.querySelector(".score-grid").innerHTML = scoreEvidence(movie);
   bindDescriptorLinks(card);
+  const metadataProfiles = isGroup ? movie.individual_scores.map((item) => item.user) : [user];
+  enhanceMetadataPeople(card, movie, metadataProfiles).catch(() => {});
   return card;
 }
 

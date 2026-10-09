@@ -796,6 +796,42 @@ def profile_descriptor_stat(
     }
 
 
+@app.get("/profiles/{user}/stats/people")
+def profile_seen_people(user: str) -> dict:
+    """Return directors and cast members represented in a profile's rated history."""
+    from app.services.recommendation_reports import VALID_USER
+
+    if not VALID_USER.fullmatch(user):
+        raise HTTPException(status_code=422, detail="Invalid profile ID")
+    with SessionLocal() as session:
+        owner = session.scalar(select(User).where(User.slug == user))
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        movies = session.scalars(
+            select(Movie)
+            .join(UserMovieInteraction, UserMovieInteraction.movie_id == Movie.id)
+            .where(
+                UserMovieInteraction.user_id == owner.id,
+                UserMovieInteraction.rating.is_not(None),
+            )
+        ).all()
+        display_name = owner.display_name
+    details_raw = _load_profile_detail_cache()
+    directors: set[str] = set()
+    actors: set[str] = set()
+    for movie in movies:
+        details = details_raw.get(str(movie.tmdb_id), {}) if movie.tmdb_id else {}
+        labels = movie_category_labels({"year": movie.year, "runtime": movie.runtime}, details)
+        directors.update(labels["directors"])
+        actors.update(labels["actors"])
+    return {
+        "user": user,
+        "display_name": display_name,
+        "directors": sorted(directors),
+        "actors": sorted(actors),
+    }
+
+
 @app.get("/profiles/{user}/ratings")
 def profile_rating_history(user: str) -> dict:
     """Return a profile's rated movies, newest watches first and high ratings first."""
