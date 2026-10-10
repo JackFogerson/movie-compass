@@ -1,18 +1,9 @@
 let user = document.body.dataset.user;
 const tmdbStatus = document.querySelector("#tmdb-status");
-const yearMinInput = document.querySelector("#year-min");
-const yearMaxInput = document.querySelector("#year-max");
 const limitInput = document.querySelector("#limit");
-const popularityInput = document.querySelector("#popularity");
-const certificationInput = document.querySelector("#certification");
-const genreInput = document.querySelector("#genre");
-const metadataCategoryInput = document.querySelector("#metadata-category");
-const metadataValueSelect = document.querySelector("#metadata-value-select");
-const metadataValueSearch = document.querySelector("#metadata-value-search");
-const metadataValueSuggestions = document.querySelector("#metadata-value-suggestions");
-const metadataValueCaption = document.querySelector("#metadata-value-caption");
+const addFilterInput = document.querySelector("#add-filter");
+const filterList = document.querySelector("#filter-list");
 const mediaTypeInput = document.querySelector("#media-type");
-const runtimeInput = document.querySelector("#runtime");
 const availabilityInput = document.querySelector("#availability");
 const applyButton = document.querySelector("#apply");
 const list = document.querySelector("#recommendations");
@@ -87,19 +78,10 @@ const groupProfileInputs = [...document.querySelectorAll(".group-profile")];
 const buildGroupButton = document.querySelector("#build-group");
 const groupStatus = document.querySelector("#group-status");
 const groupResults = document.querySelector("#group-results");
-const groupYearMinInput = document.querySelector("#group-year-min");
-const groupYearMaxInput = document.querySelector("#group-year-max");
 const groupLimitInput = document.querySelector("#group-limit");
-const groupPopularityInput = document.querySelector("#group-popularity");
-const groupCertificationInput = document.querySelector("#group-certification");
-const groupGenreInput = document.querySelector("#group-genre");
-const groupMetadataCategoryInput = document.querySelector("#group-metadata-category");
-const groupMetadataValueSelect = document.querySelector("#group-metadata-value-select");
-const groupMetadataValueSearch = document.querySelector("#group-metadata-value-search");
-const groupMetadataValueSuggestions = document.querySelector("#group-metadata-value-suggestions");
-const groupMetadataValueCaption = document.querySelector("#group-metadata-value-caption");
+const groupAddFilterInput = document.querySelector("#group-add-filter");
+const groupFilterList = document.querySelector("#group-filter-list");
 const groupMediaTypeInput = document.querySelector("#group-media-type");
-const groupRuntimeInput = document.querySelector("#group-runtime");
 const groupAvailabilityInput = document.querySelector("#group-availability");
 const groupExcludeAnyWatchedInput = document.querySelector("#group-exclude-any-watched");
 const groupIncludeWatchedInput = document.querySelector("#group-include-watched");
@@ -204,83 +186,166 @@ function scoreEvidence(movie) {
     .join("");
 }
 
-function runtimeBounds(input) {
-  if (!input.value) return [null, null];
-  const [minimum, maximum] = input.value.split("-").map(Number);
-  return [minimum, maximum];
+const FILTER_LABELS = {
+  title: "Title",
+  year: "Release year",
+  genre: "Genre",
+  themes: "Theme or topic",
+  directors: "Director",
+  actors: "Actor",
+  languages: "Language",
+  countries: "Production country",
+  companies: "Production company",
+  runtime: "Runtime",
+  popularity: "Audience reach",
+  certification: "US content rating",
+};
+const METADATA_FILTER_TYPES = new Set([
+  "themes", "directors", "actors", "languages", "countries", "companies",
+]);
+const GENRES = [
+  "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama",
+  "Family", "Fantasy", "History", "Horror", "Music", "Mystery", "Romance",
+  "Science Fiction", "Thriller", "War", "Western",
+];
+let filterRowSequence = 0;
+
+function optionMarkup(values, placeholder) {
+  return `<option value="">${placeholder}</option>` + values
+    .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+    .join("");
 }
 
-function metadataFilterValue(categoryInput, selectInput, searchInput) {
-  if (!categoryInput.value) return null;
-  const value = (selectInput.hidden ? searchInput.value : selectInput.value).trim();
-  return value ? { category: categoryInput.value, value } : null;
+function updateFilterEmpty(listElement) {
+  const empty = listElement.querySelector(".filter-empty");
+  if (empty) empty.hidden = Boolean(listElement.querySelector(".active-filter"));
 }
 
-function configureMetadataFilter(categoryInput, selectInput, searchInput, suggestions, caption) {
+async function configureMetadataRow(row, type) {
+  const host = row.querySelector(".filter-value-host");
+  const rowId = row.dataset.rowId;
   let requestNumber = 0;
   let searchTimer;
-
   const showOptions = async (query = "") => {
-    const category = categoryInput.value;
     const currentRequest = ++requestNumber;
-    if (!category) {
-      caption.textContent = 'Choose “Filter by” first';
-      selectInput.hidden = false;
-      selectInput.disabled = true;
-      selectInput.innerHTML = '<option value="">Choose a detail above</option>';
-      searchInput.hidden = true;
-      searchInput.disabled = true;
-      searchInput.value = "";
-      suggestions.innerHTML = "";
-      return;
-    }
-    const params = new URLSearchParams({ category, q: query, limit: "12" });
+    const params = new URLSearchParams({ category: type, q: query, limit: "12" });
     try {
       const response = await fetch(`/catalog/metadata-options?${params}`);
       const result = await responseJson(response);
-      if (!response.ok) throw new Error(result.detail || "Filter options could not be loaded");
-      if (currentRequest !== requestNumber || category !== categoryInput.value) return;
+      if (!response.ok) throw new Error(result.detail || "Options unavailable");
+      if (currentRequest !== requestNumber || !row.isConnected) return;
       if (result.mode === "select") {
-        caption.textContent = `Choose ${result.label.toLowerCase()}`;
-        searchInput.hidden = true;
-        searchInput.disabled = true;
-        searchInput.value = "";
-        selectInput.hidden = false;
-        selectInput.disabled = false;
-        selectInput.innerHTML = '<option value="">Any value</option>' + result.options
-          .map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.value)} · ${item.films} film${item.films === 1 ? "" : "s"}</option>`)
-          .join("");
+        host.innerHTML = `<select class="filter-value">${optionMarkup(
+          result.options.map((item) => [item.value, `${item.value} · ${item.films} film${item.films === 1 ? "" : "s"}`]),
+          `Any ${FILTER_LABELS[type].toLowerCase()}`,
+        )}</select>`;
       } else {
-        caption.textContent = `Search ${result.label.toLowerCase()}`;
-        selectInput.hidden = true;
-        selectInput.disabled = true;
-        searchInput.hidden = false;
-        searchInput.disabled = false;
-        searchInput.placeholder = `Type to search ${result.total.toLocaleString()} options…`;
-        suggestions.innerHTML = result.options
-          .map((item) => `<option value="${escapeHtml(item.value)}" label="${item.films} film${item.films === 1 ? "" : "s"}"></option>`)
-          .join("");
+        host.innerHTML = `<input class="filter-value" type="search" list="filter-suggestions-${rowId}" placeholder="Type to search ${result.total.toLocaleString()} options…" autocomplete="off" /><datalist id="filter-suggestions-${rowId}"></datalist>`;
+        const input = host.querySelector("input");
+        const suggestions = host.querySelector("datalist");
+        const fillSuggestions = (items) => {
+          suggestions.innerHTML = items.map((item) => `<option value="${escapeHtml(item.value)}" label="${item.films} film${item.films === 1 ? "" : "s"}"></option>`).join("");
+        };
+        fillSuggestions(result.options);
+        input.addEventListener("input", () => {
+          clearTimeout(searchTimer);
+          searchTimer = setTimeout(async () => {
+            const nextParams = new URLSearchParams({ category: type, q: input.value.trim(), limit: "12" });
+            const nextResponse = await fetch(`/catalog/metadata-options?${nextParams}`);
+            const nextResult = await responseJson(nextResponse);
+            if (nextResponse.ok && row.isConnected) fillSuggestions(nextResult.options || []);
+          }, 160);
+        });
       }
     } catch (_error) {
-      if (currentRequest !== requestNumber) return;
-      selectInput.hidden = true;
-      selectInput.disabled = true;
-      searchInput.hidden = false;
-      searchInput.disabled = false;
-      caption.textContent = `Enter ${categoryInput.options[categoryInput.selectedIndex].text.toLowerCase()}`;
-      searchInput.placeholder = "Type an exact value…";
+      if (row.isConnected) host.innerHTML = `<input class="filter-value" type="search" placeholder="Enter ${FILTER_LABELS[type].toLowerCase()}…" />`;
     }
   };
+  await showOptions();
+}
 
-  categoryInput.addEventListener("change", () => {
-    searchInput.value = "";
-    showOptions();
+function addFilterRow(listElement, type) {
+  if (!FILTER_LABELS[type]) return;
+  const row = document.createElement("div");
+  row.className = "active-filter";
+  row.dataset.filterType = type;
+  row.dataset.rowId = String(++filterRowSequence);
+  row.innerHTML = `<div class="active-filter-label"><span>${escapeHtml(FILTER_LABELS[type])}</span><button class="remove-filter" type="button" aria-label="Remove ${escapeHtml(FILTER_LABELS[type])}">×</button></div><div class="filter-value-host"></div>`;
+  const host = row.querySelector(".filter-value-host");
+  if (type === "year") {
+    host.classList.add("year-filter-values");
+    host.innerHTML = '<input class="filter-year-min" type="number" min="1870" max="2200" placeholder="From" aria-label="From year" /><span>to</span><input class="filter-year-max" type="number" min="1870" max="2200" placeholder="Through" aria-label="Through year" />';
+  } else if (type === "genre") {
+    host.innerHTML = `<select class="filter-value">${optionMarkup(GENRES.map((value) => [value, value]), "Any genre")}</select>`;
+  } else if (type === "runtime") {
+    host.innerHTML = `<select class="filter-value">${optionMarkup([["1-59", "Under 60 min"], ["60-89", "60–89 min"], ["90-119", "90–119 min"], ["120-149", "120–149 min"], ["150-179", "150–179 min"], ["180-600", "180+ min"]], "Any runtime")}</select>`;
+  } else if (type === "popularity") {
+    host.innerHTML = `<select class="filter-value">${optionMarkup([["blockbuster", "Blockbuster"], ["popular", "Popular"], ["cult_classic", "Cult classic"], ["under_the_radar", "Under the radar"], ["unknown", "Unknown / emerging"]], "Any audience reach")}</select>`;
+  } else if (type === "certification") {
+    host.innerHTML = `<select class="filter-value">${optionMarkup([["g", "G"], ["pg", "PG"], ["pg-13", "PG-13"], ["r", "R"], ["nc-17", "NC-17"], ["unrated", "Unrated / NR"], ["other", "Other / TV rating"], ["unknown", "Unknown / not rated"]], "Any content rating")}</select>`;
+  } else if (type === "title") {
+    host.innerHTML = '<input class="filter-value" type="search" placeholder="Search TMDB by title…" />';
+  } else if (METADATA_FILTER_TYPES.has(type)) {
+    host.innerHTML = '<input class="filter-value" type="search" placeholder="Loading options…" disabled />';
+    configureMetadataRow(row, type);
+  }
+  row.querySelector(".remove-filter").addEventListener("click", () => {
+    row.remove();
+    updateFilterEmpty(listElement);
   });
-  searchInput.addEventListener("input", () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => showOptions(searchInput.value.trim()), 160);
+  listElement.append(row);
+  updateFilterEmpty(listElement);
+}
+
+function configureFilterBuilder(addInput, listElement) {
+  addInput.addEventListener("change", () => {
+    if (addInput.value) addFilterRow(listElement, addInput.value);
+    addInput.value = "";
   });
-  showOptions();
+}
+
+function collectFilters(listElement) {
+  const values = {
+    year_min: null,
+    year_max: null,
+    genre: null,
+    runtime_min: null,
+    runtime_max: null,
+    popularity: "all",
+    certification: "all",
+    title_filter: null,
+    metadata_filters: [],
+  };
+  listElement.querySelectorAll(".active-filter").forEach((row) => {
+    const type = row.dataset.filterType;
+    if (type === "year") {
+      values.year_min = row.querySelector(".filter-year-min").value || null;
+      values.year_max = row.querySelector(".filter-year-max").value || null;
+      return;
+    }
+    const value = row.querySelector(".filter-value")?.value.trim();
+    if (!value) return;
+    if (type === "runtime") {
+      [values.runtime_min, values.runtime_max] = value.split("-");
+    } else if (type === "genre" || type === "popularity" || type === "certification" || type === "title") {
+      values[type === "title" ? "title_filter" : type] = value;
+    } else if (METADATA_FILTER_TYPES.has(type)) {
+      values.metadata_filters.push({ category: type, value });
+    }
+  });
+  return values;
+}
+
+function filterSummary(filters) {
+  const labels = [];
+  if (filters.year_min || filters.year_max) labels.push(filters.year_min && filters.year_max ? `${filters.year_min}–${filters.year_max}` : filters.year_min ? `${filters.year_min} and later` : `Through ${filters.year_max}`);
+  if (filters.title_filter) labels.push(`Title: ${filters.title_filter}`);
+  if (filters.genre) labels.push(filters.genre);
+  if (filters.runtime_min) labels.push(`${filters.runtime_min}–${filters.runtime_max} min`);
+  if (filters.popularity !== "all") labels.push(FILTER_LABELS.popularity);
+  if (filters.certification !== "all") labels.push(filters.certification.toUpperCase());
+  filters.metadata_filters.forEach((item) => labels.push(item.value));
+  return labels;
 }
 
 function matchesAvailability(movie, selection) {
@@ -300,10 +365,10 @@ function certificationBucket(certification) {
   return normalized ? "other" : "unknown";
 }
 
-function recommendationFiltered(movies, availability, certification, limit = null) {
+function recommendationFiltered(movies, availability, certification = "all", limit = null) {
   const filtered = (movies || []).filter((movie) =>
     matchesAvailability(movie, availability.value) &&
-    (certification.value === "all" || certificationBucket(movie.certification) === certification.value)
+    (certification === "all" || certificationBucket(movie.certification) === certification)
   );
   return limit == null ? filtered : filtered.slice(0, limit);
 }
@@ -688,50 +753,29 @@ function renderMetrics(report) {
 }
 
 function requestParams() {
+  const filters = collectFilters(filterList);
   const params = new URLSearchParams({
-    limit: availabilityInput.value === "all" && certificationInput.value === "all" ? limitInput.value : "100",
-    popularity: popularityInput.value,
+    limit: availabilityInput.value === "all" && filters.certification === "all" ? limitInput.value : "100",
+    popularity: filters.popularity,
     media_type: mediaTypeInput.value,
   });
-  if (yearMinInput.value) params.set("year_min", yearMinInput.value);
-  if (yearMaxInput.value) params.set("year_max", yearMaxInput.value);
-  if (genreInput.value) params.set("genre", genreInput.value);
-  const metadataFilter = metadataFilterValue(
-    metadataCategoryInput,
-    metadataValueSelect,
-    metadataValueSearch,
-  );
-  if (metadataFilter) {
-    params.set("metadata_category", metadataFilter.category);
-    params.set("metadata_value", metadataFilter.value);
-  }
-  const [runtimeMinimum, runtimeMaximum] = runtimeBounds(runtimeInput);
-  if (runtimeMinimum) params.set("runtime_min", runtimeMinimum);
-  if (runtimeMaximum) params.set("runtime_max", runtimeMaximum);
+  if (filters.year_min) params.set("year_min", filters.year_min);
+  if (filters.year_max) params.set("year_max", filters.year_max);
+  if (filters.genre) params.set("genre", filters.genre);
+  if (filters.runtime_min) params.set("runtime_min", filters.runtime_min);
+  if (filters.runtime_max) params.set("runtime_max", filters.runtime_max);
+  if (filters.title_filter) params.set("title_filter", filters.title_filter);
+  if (filters.metadata_filters.length) params.set("metadata_filters", JSON.stringify(filters.metadata_filters));
   params.set("country", "US");
   return params;
 }
 
 function updateViewLabel(report) {
-  const minLabel = yearMinInput.value;
-  const maxLabel = yearMaxInput.value;
-  let label = "All years · historical and current releases";
-  if (minLabel && maxLabel) label = `${minLabel} through ${maxLabel}`;
-  else if (minLabel) label = `${minLabel} and later`;
-  else if (maxLabel) label = `Through ${maxLabel}`;
-  const popularityLabel = popularityInput.options[popularityInput.selectedIndex].text;
-  const genreLabel = genreInput.value || "All genres";
+  const filters = collectFilters(filterList);
   const mediaTypeLabel = mediaTypeInput.options[mediaTypeInput.selectedIndex].text;
-  const runtimeLabel = runtimeInput.options[runtimeInput.selectedIndex].text;
   const availabilityLabel = availabilityInput.options[availabilityInput.selectedIndex].text;
-  const certificationLabel = certificationInput.options[certificationInput.selectedIndex].text;
-  const metadataFilter = metadataFilterValue(
-    metadataCategoryInput,
-    metadataValueSelect,
-    metadataValueSearch,
-  );
-  const metadataLabel = metadataFilter ? `Detail: ${metadataFilter.value}` : "Any additional detail";
-  label = `${label} · ${mediaTypeLabel} · ${genreLabel} · ${metadataLabel} · ${runtimeLabel} · ${popularityLabel} · ${certificationLabel} · ${availabilityLabel}`;
+  const selected = filterSummary(filters);
+  const label = [mediaTypeLabel, availabilityLabel, ...selected].join(" · ");
   document.querySelector("#active-view").textContent = label;
   const range = report.available_candidate_years;
   const universe = report.candidate_universe || report.candidates_considered;
@@ -745,7 +789,8 @@ function displayReport(report) {
   updateViewLabel(report);
   renderMetrics(report);
   list.innerHTML = "";
-  const recommendations = recommendationFiltered(report.recommendations, availabilityInput, certificationInput, Number(limitInput.value));
+  const filters = collectFilters(filterList);
+  const recommendations = recommendationFiltered(report.recommendations, availabilityInput, filters.certification, Number(limitInput.value));
   recommendations.forEach((movie) => list.append(renderMovie(movie)));
   if (!recommendations.length) {
     list.innerHTML = `<div class="empty">No recommendations match these filters. Try a broader availability, year, or genre selection.</div>`;
@@ -755,7 +800,7 @@ function displayReport(report) {
     notice.textContent = `${report.unavailable_candidate_details} stale or unavailable catalog records were skipped safely.`;
   }
   lowestList.innerHTML = "";
-  const lowestRecommendations = recommendationFiltered(report.lowest_recommendations, availabilityInput, certificationInput);
+  const lowestRecommendations = recommendationFiltered(report.lowest_recommendations, availabilityInput, filters.certification);
   lowestRecommendations.forEach((movie, index) => {
     lowestList.append(renderMovie(movie, `LOW ${index + 1}`));
   });
@@ -1412,26 +1457,21 @@ async function buildGroupRecommendations() {
   groupDivisiveResults.innerHTML = "";
   groupDivisiveHeading.hidden = true;
   const startedAt = performance.now();
-  const [runtimeMinimum, runtimeMaximum] = runtimeBounds(groupRuntimeInput);
-  const metadataFilter = metadataFilterValue(
-    groupMetadataCategoryInput,
-    groupMetadataValueSelect,
-    groupMetadataValueSearch,
-  );
+  const filters = collectFilters(groupFilterList);
   const body = {
     users,
-    limit: groupAvailabilityInput.value === "all" && groupCertificationInput.value === "all" ? Number(groupLimitInput.value) : 30,
-    popularity: groupPopularityInput.value,
+    limit: groupAvailabilityInput.value === "all" && filters.certification === "all" ? Number(groupLimitInput.value) : 30,
+    popularity: filters.popularity,
     media_type: groupMediaTypeInput.value,
-    genre: groupGenreInput.value || null,
-    metadata_category: metadataFilter?.category || null,
-    metadata_value: metadataFilter?.value || null,
+    genre: filters.genre,
+    metadata_filters: filters.metadata_filters,
+    title_filter: filters.title_filter,
     include_watched: groupIncludeWatchedInput.checked,
     exclude_any_watched: groupExcludeAnyWatchedInput.checked,
-    year_min: groupYearMinInput.value ? Number(groupYearMinInput.value) : null,
-    year_max: groupYearMaxInput.value ? Number(groupYearMaxInput.value) : null,
-    runtime_min: runtimeMinimum,
-    runtime_max: runtimeMaximum,
+    year_min: filters.year_min ? Number(filters.year_min) : null,
+    year_max: filters.year_max ? Number(filters.year_max) : null,
+    runtime_min: filters.runtime_min ? Number(filters.runtime_min) : null,
+    runtime_max: filters.runtime_max ? Number(filters.runtime_max) : null,
     country: "US",
   };
   try {
@@ -1456,17 +1496,17 @@ async function buildGroupRecommendations() {
         : result.include_watched
           ? " Titles seen by the whole group are included."
           : " Titles everyone has seen are hidden; partially watched choices remain eligible.");
-    const groupRecommendations = recommendationFiltered(result.recommendations, groupAvailabilityInput, groupCertificationInput, Number(groupLimitInput.value));
+    const groupRecommendations = recommendationFiltered(result.recommendations, groupAvailabilityInput, filters.certification, Number(groupLimitInput.value));
     groupRecommendations.forEach((movie) => groupResults.append(renderMovie(movie)));
     if (!groupRecommendations.length) {
       groupResults.innerHTML = `<div class="empty">No shared movies matched these filters and the selected U.S. availability.</div>`;
     }
-    const groupLowest = recommendationFiltered(result.lowest_recommendations, groupAvailabilityInput, groupCertificationInput);
+    const groupLowest = recommendationFiltered(result.lowest_recommendations, groupAvailabilityInput, filters.certification);
     groupLowest.forEach((movie, index) => {
       groupLowestResults.append(renderMovie(movie, `LOW ${index + 1}`));
     });
     groupLowestHeading.hidden = !groupLowest.length;
-    const groupDivisive = recommendationFiltered(result.most_divisive, groupAvailabilityInput, groupCertificationInput);
+    const groupDivisive = recommendationFiltered(result.most_divisive, groupAvailabilityInput, filters.certification);
     groupDivisive.forEach((movie, index) => {
       const personSection = document.createElement("section");
       personSection.className = "person-split";
@@ -1677,20 +1717,8 @@ groupMovieQueryInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") searchGroupMovieScores();
 });
 const preferredProfile = localStorage.getItem("movie-compass-profile") || user;
-configureMetadataFilter(
-  metadataCategoryInput,
-  metadataValueSelect,
-  metadataValueSearch,
-  metadataValueSuggestions,
-  metadataValueCaption,
-);
-configureMetadataFilter(
-  groupMetadataCategoryInput,
-  groupMetadataValueSelect,
-  groupMetadataValueSearch,
-  groupMetadataValueSuggestions,
-  groupMetadataValueCaption,
-);
+configureFilterBuilder(addFilterInput, filterList);
+configureFilterBuilder(groupAddFilterInput, groupFilterList);
 applyAdultPosterPreference(localStorage.getItem(adultPosterPreferenceKey) === "true");
 loadTmdbStatus();
 Promise.all([loadCatalogStatus(), loadProfiles(preferredProfile)])

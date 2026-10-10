@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import RLock
 from typing import Protocol
 
 from ingestion.tmdb.client import (
@@ -17,6 +18,9 @@ class DetailsClient(Protocol):
     def tv_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict: ...
 
 
+_CACHE_LOCK = RLock()
+
+
 def _write_cache(path: Path, values: dict[str, dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(f"{path.suffix}.part")
@@ -30,6 +34,22 @@ def load_or_fetch_details(
     cache_path: Path,
     *,
     save_every: int = 20,
+) -> tuple[dict[int, dict], int]:
+    with _CACHE_LOCK:
+        return _load_or_fetch_details_locked(
+            client,
+            tmdb_ids,
+            cache_path,
+            save_every=save_every,
+        )
+
+
+def _load_or_fetch_details_locked(
+    client: DetailsClient,
+    tmdb_ids: set[int],
+    cache_path: Path,
+    *,
+    save_every: int,
 ) -> tuple[dict[int, dict], int]:
     cached: dict[str, dict] = {}
     if cache_path.exists():

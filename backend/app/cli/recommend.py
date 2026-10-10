@@ -106,6 +106,7 @@ def main(
     genre: str | None = None,
     metadata_category: str | None = None,
     metadata_value: str | None = None,
+    metadata_filters: str | None = None,
     media_type: str = "all",
     title_query: str | None = None,
     candidate_tmdb_ids: str | None = None,
@@ -167,6 +168,26 @@ def main(
         )
     if metadata_category and metadata_category not in METADATA_FILTER_CATEGORIES:
         raise typer.BadParameter(f"Unsupported metadata filter: {metadata_category}")
+    parsed_metadata_filters: list[dict[str, str]] = []
+    if metadata_filters:
+        try:
+            decoded_filters = json.loads(metadata_filters)
+        except json.JSONDecodeError as error:
+            raise typer.BadParameter("metadata_filters must be valid JSON") from error
+        if not isinstance(decoded_filters, list):
+            raise typer.BadParameter("metadata_filters must be a JSON list")
+        for item in decoded_filters:
+            if not isinstance(item, dict):
+                raise typer.BadParameter("Each metadata filter must be an object")
+            category = str(item.get("category") or "").strip()
+            value = str(item.get("value") or "").strip()
+            if category not in METADATA_FILTER_CATEGORIES or not value:
+                raise typer.BadParameter("Invalid metadata filter category or value")
+            parsed_metadata_filters.append({"category": category, "value": value})
+    if metadata_category and metadata_value:
+        parsed_metadata_filters.append(
+            {"category": metadata_category, "value": metadata_value}
+        )
     excluded = _excluded_tmdb_ids(
         user,
         include_watchlist=include_watchlist,
@@ -396,11 +417,14 @@ def main(
                 for value in item.get("genres", [])
             }
         ]
-    if metadata_category and metadata_value:
+    if parsed_metadata_filters:
         eligible_candidates = [
             item
             for item in eligible_candidates
-            if matches_metadata_filter(item, metadata_category, metadata_value)
+            if all(
+                matches_metadata_filter(item, selected["category"], selected["value"])
+                for selected in parsed_metadata_filters
+            )
         ]
     if candidate_tmdb_ids:
         requested_ids = {
@@ -499,6 +523,7 @@ def main(
             "category": metadata_category,
             "value": metadata_value,
         },
+        "metadata_filters": parsed_metadata_filters,
         "media_type_filter": media_type,
         "year_filter": {"minimum": year_min, "maximum": year_max},
         "runtime_filter": {"minimum": runtime_min, "maximum": runtime_max},

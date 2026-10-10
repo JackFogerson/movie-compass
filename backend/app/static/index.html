@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Movie Compass</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20261010-trait-filter1" />
+    <link rel="stylesheet" href="/static/styles.css?v=20261010-filter-builder1" />
   </head>
   <body data-user="">
     <header class="site-header">
@@ -100,18 +100,17 @@
           <p>This copy of Movie Compass has no personal data. Open <b>Add profile</b> and import a Letterboxd export or a Movie Compass profile backup.</p>
         </section>
 
-        <section class="controls" aria-label="Recommendation filters">
-          <label>From year<input id="year-min" type="number" min="1870" max="2200" placeholder="Any year" /></label>
-          <label>Through year<input id="year-max" type="number" min="1870" max="2200" placeholder="Any year" /></label>
-          <label>Genre<select id="genre"><option value="">All genres</option><option>Action</option><option>Adventure</option><option>Animation</option><option>Comedy</option><option>Crime</option><option>Documentary</option><option>Drama</option><option>Family</option><option>Fantasy</option><option>History</option><option>Horror</option><option>Music</option><option>Mystery</option><option>Romance</option><option>Science Fiction</option><option>Thriller</option><option>War</option><option>Western</option></select></label>
-          <div class="trait-filter"><div class="trait-filter-copy"><strong>Looking for something specific?</strong><small>Optional · choose what you want to filter by, then pick or search for it.</small></div><label>Filter by<select id="metadata-category"><option value="">Nothing specific</option><option value="themes">Theme or topic</option><option value="directors">Director</option><option value="actors">Actor</option><option value="languages">Language</option><option value="countries">Production country</option><option value="companies">Production company</option></select></label><label><span id="metadata-value-caption">Choose “Filter by” first</span><select id="metadata-value-select" disabled><option value="">Choose a filter first</option></select><input id="metadata-value-search" type="search" list="metadata-value-suggestions" placeholder="Start typing…" autocomplete="off" hidden disabled /><datalist id="metadata-value-suggestions"></datalist></label></div>
-          <label>Title type<select id="media-type"><option value="movie" selected>Movies only</option><option value="all">Movies + TV</option><option value="tv">TV / miniseries only</option></select></label>
-          <label>Runtime<select id="runtime"><option value="">Any runtime</option><option value="1-59">Under 60 min</option><option value="60-89">60–89 min</option><option value="90-119">90–119 min</option><option value="120-149">120–149 min</option><option value="150-179">150–179 min</option><option value="180-600">180+ min</option></select></label>
-          <label>Audience reach<select id="popularity"><option value="all">Any audience reach</option><option value="blockbuster">Blockbuster</option><option value="popular">Popular</option><option value="cult_classic">Cult classic</option><option value="under_the_radar">Under the radar</option><option value="unknown">Unknown / emerging</option></select></label>
-          <label>US content rating<select id="certification"><option value="all">Any content rating</option><option value="g">G</option><option value="pg">PG</option><option value="pg-13">PG-13</option><option value="r">R</option><option value="nc-17">NC-17</option><option value="unrated">Unrated / NR</option><option value="other">Other / TV rating</option><option value="unknown">Unknown / not rated</option></select></label>
-          <label>Watch in USA<select id="availability"><option value="all">Don't filter availability</option><option value="listed">Has a listed watch option</option><option value="subscription">Subscription streaming</option><option value="free">Free / ad-supported</option><option value="rent_buy">Rent or buy</option></select></label>
-          <label>Results<select id="limit"><option>10</option><option selected>20</option><option>30</option></select></label>
-          <button id="apply" type="button">Update results</button>
+        <section class="controls filter-workspace" aria-label="Recommendation filters">
+          <div class="filter-builder">
+            <div class="filter-builder-heading"><div><span class="context-label">FILTERS</span><strong>Build your search</strong></div><label>Add filter<select id="add-filter"><option value="">Choose a filter…</option><option value="title">Title</option><option value="year">Release year</option><option value="genre">Genre</option><option value="themes">Theme or topic</option><option value="directors">Director</option><option value="actors">Actor</option><option value="languages">Language</option><option value="countries">Production country</option><option value="companies">Production company</option><option value="runtime">Runtime</option><option value="popularity">Audience reach</option><option value="certification">US content rating</option></select></label></div>
+            <div id="filter-list" class="filter-list"><p class="filter-empty">No extra filters yet. Add one only when you need it.</p></div>
+          </div>
+          <div class="primary-filter-row">
+            <label>Title type<select id="media-type"><option value="movie" selected>Movies only</option><option value="all">Movies + TV</option><option value="tv">TV / miniseries only</option></select></label>
+            <label>Availability<select id="availability"><option value="all">Any availability</option><option value="listed">Any listed option</option><option value="subscription">Subscription streaming</option><option value="free">Free / ad-supported</option><option value="rent_buy">Rent or buy</option></select></label>
+            <label>Results<select id="limit"><option>10</option><option selected>20</option><option>30</option></select></label>
+            <button id="apply" type="button">Update recommendations</button>
+          </div>
         </section>
 
         <section class="movie-search" aria-label="Expected score lookup">
@@ -161,20 +160,21 @@
           <label>Person 3 · optional<select class="group-profile" aria-label="Person 3 profile"></select></label>
           <label>Person 4 · optional<select class="group-profile" aria-label="Person 4 profile"></select></label>
         </section>
-        <section class="controls group-controls" aria-label="Group filters">
-          <label>From year<input id="group-year-min" type="number" min="1870" max="2200" placeholder="Any year" /></label>
-          <label>Through year<input id="group-year-max" type="number" min="1870" max="2200" placeholder="Any year" /></label>
-          <label>Genre<select id="group-genre"><option value="">All genres</option><option>Action</option><option>Adventure</option><option>Animation</option><option>Comedy</option><option>Crime</option><option>Documentary</option><option>Drama</option><option>Family</option><option>Fantasy</option><option>History</option><option>Horror</option><option>Music</option><option>Mystery</option><option>Romance</option><option>Science Fiction</option><option>Thriller</option><option>War</option><option>Western</option></select></label>
-          <div class="trait-filter"><div class="trait-filter-copy"><strong>Looking for something specific?</strong><small>Optional · filter the shared choices by one theme, person, language, country, or studio.</small></div><label>Filter by<select id="group-metadata-category"><option value="">Nothing specific</option><option value="themes">Theme or topic</option><option value="directors">Director</option><option value="actors">Actor</option><option value="languages">Language</option><option value="countries">Production country</option><option value="companies">Production company</option></select></label><label><span id="group-metadata-value-caption">Choose “Filter by” first</span><select id="group-metadata-value-select" disabled><option value="">Choose a filter first</option></select><input id="group-metadata-value-search" type="search" list="group-metadata-value-suggestions" placeholder="Start typing…" autocomplete="off" hidden disabled /><datalist id="group-metadata-value-suggestions"></datalist></label></div>
-          <label>Title type<select id="group-media-type"><option value="movie" selected>Movies only</option><option value="all">Movies + TV</option><option value="tv">TV / miniseries only</option></select></label>
-          <label>Runtime<select id="group-runtime"><option value="">Any runtime</option><option value="1-59">Under 60 min</option><option value="60-89">60–89 min</option><option value="90-119">90–119 min</option><option value="120-149">120–149 min</option><option value="150-179">150–179 min</option><option value="180-600">180+ min</option></select></label>
-          <label>Audience reach<select id="group-popularity"><option value="all">Any audience reach</option><option value="blockbuster">Blockbuster</option><option value="popular">Popular</option><option value="cult_classic">Cult classic</option><option value="under_the_radar">Under the radar</option><option value="unknown">Unknown / emerging</option></select></label>
-          <label>US content rating<select id="group-certification"><option value="all">Any content rating</option><option value="g">G</option><option value="pg">PG</option><option value="pg-13">PG-13</option><option value="r">R</option><option value="nc-17">NC-17</option><option value="unrated">Unrated / NR</option><option value="other">Other / TV rating</option><option value="unknown">Unknown / not rated</option></select></label>
-          <label>Watch in USA<select id="group-availability"><option value="all">Don't filter availability</option><option value="listed">Has a listed watch option</option><option value="subscription">Subscription streaming</option><option value="free">Free / ad-supported</option><option value="rent_buy">Rent or buy</option></select></label>
-          <label>Results<select id="group-limit"><option selected>10</option><option>20</option><option>30</option></select></label>
-          <button id="build-group" type="button">Find our movie</button>
-          <label class="rewatch-toggle"><input id="group-exclude-any-watched" type="checkbox" /><span><b>Exclude anything anyone has seen</b><small>Show only completely new choices that none of the selected profiles has rated.</small></span></label>
-          <label class="rewatch-toggle"><input id="group-include-watched" type="checkbox" /><span><b>Include titles everyone has seen</b><small>Allow every rewatch. Each prior viewer adds a small penalty so new discoveries remain favored.</small></span></label>
+        <section class="controls group-controls filter-workspace" aria-label="Group filters">
+          <div class="filter-builder">
+            <div class="filter-builder-heading"><div><span class="context-label">FILTERS</span><strong>Build the group search</strong></div><label>Add filter<select id="group-add-filter"><option value="">Choose a filter…</option><option value="title">Title</option><option value="year">Release year</option><option value="genre">Genre</option><option value="themes">Theme or topic</option><option value="directors">Director</option><option value="actors">Actor</option><option value="languages">Language</option><option value="countries">Production country</option><option value="companies">Production company</option><option value="runtime">Runtime</option><option value="popularity">Audience reach</option><option value="certification">US content rating</option></select></label></div>
+            <div id="group-filter-list" class="filter-list"><p class="filter-empty">No extra filters yet. Add one only when the group needs it.</p></div>
+          </div>
+          <div class="primary-filter-row">
+            <label>Title type<select id="group-media-type"><option value="movie" selected>Movies only</option><option value="all">Movies + TV</option><option value="tv">TV / miniseries only</option></select></label>
+            <label>Availability<select id="group-availability"><option value="all">Any availability</option><option value="listed">Any listed option</option><option value="subscription">Subscription streaming</option><option value="free">Free / ad-supported</option><option value="rent_buy">Rent or buy</option></select></label>
+            <label>Results<select id="group-limit"><option selected>10</option><option>20</option><option>30</option></select></label>
+            <button id="build-group" type="button">Find our movie</button>
+          </div>
+          <div class="group-watch-options">
+            <label class="rewatch-toggle"><input id="group-exclude-any-watched" type="checkbox" /><span><b>Exclude anything anyone has seen</b><small>Show only completely new choices that none of the selected profiles has rated.</small></span></label>
+            <label class="rewatch-toggle"><input id="group-include-watched" type="checkbox" /><span><b>Include titles everyone has seen</b><small>Allow every rewatch. Each prior viewer adds a small penalty so new discoveries remain favored.</small></span></label>
+          </div>
         </section>
         <section class="movie-search group-search" aria-label="Group expected score lookup">
           <div><span class="context-label">CHECK A MOVIE</span><strong>See how it fits everyone</strong></div>
@@ -239,6 +239,6 @@
     <template id="movie-card-template">
       <article class="movie-card"><div class="rank"></div><div class="poster-shell"><img class="movie-poster" loading="lazy" /></div><div class="movie-main"><div class="movie-heading"><div class="title-stack"><div class="movie-year"></div><h2 class="movie-title"></h2><div class="badges"></div></div><div class="rating-block"><span class="rating-label">EXPECTED</span><strong class="expected-rating"></strong><span class="rating-scale">/ 5</span><span class="plausible-range"></span></div></div><div class="movie-detail-grid"><div class="movie-copy"><p class="expectation-reason"></p><div class="group-scores"></div><ul class="explanations"></ul><div class="risk-explanation"><strong>Why it may not work for you</strong><ul class="cautions"></ul></div><details class="movie-metadata"><summary>Cast, director &amp; synopsis</summary><div class="metadata-copy"></div></details><details><summary>How this score was built</summary><div class="score-grid"></div></details></div><aside class="streaming-info"></aside></div></div></article>
     </template>
-    <script src="/static/app.js?v=20261010-person-filter1" defer></script>
+    <script src="/static/app.js?v=20261010-filter-builder1" defer></script>
   </body>
 </html>

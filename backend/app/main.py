@@ -70,6 +70,11 @@ static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+class MetadataFilterRequest(BaseModel):
+    category: str = Field(max_length=30)
+    value: str = Field(min_length=1, max_length=200)
+
+
 class GroupRecommendationRequest(BaseModel):
     users: list[str] = Field(min_length=2, max_length=4)
     year_min: int | None = Field(default=None, ge=1870, le=2200)
@@ -80,6 +85,8 @@ class GroupRecommendationRequest(BaseModel):
     genre: str | None = Field(default=None, max_length=60)
     metadata_category: str | None = Field(default=None, max_length=30)
     metadata_value: str | None = Field(default=None, max_length=200)
+    metadata_filters: list[MetadataFilterRequest] = Field(default_factory=list, max_length=10)
+    title_filter: str | None = Field(default=None, max_length=120)
     media_type: str = Field(default="movie", pattern=r"^(all|movie|tv)$")
     country: str = Field(default="US", pattern=r"^[A-Z]{2}$")
     include_watched: bool = False
@@ -313,10 +320,10 @@ def _person_filter_candidate_ids(
     category: str | None,
     value: str | None,
     media_type: str,
-) -> list[int]:
+) -> list[int] | None:
     """Expand actor/director filters beyond titles already present in the local cache."""
     if category not in {"actors", "directors"} or not value or not settings.tmdb_api_key:
-        return []
+        return None
     client = TmdbClient(settings.tmdb_api_key)
     try:
         people = client.search_person(value)
@@ -355,9 +362,97 @@ def _person_filter_candidate_ids(
         )
         return [tmdb_id for tmdb_id in ids if tmdb_id in available]
     except (RetryError, TmdbError):
-        return []
+        return None
     finally:
         client.close()
+
+
+def _theme_filter_candidate_ids(value: str, media_type: str) -> list[int] | None:
+    """Discover TMDB titles for a theme instead of limiting themes to the local cache."""
+    if not value or not settings.tmdb_api_key:
+        return None
+    client = TmdbClient(settings.tmdb_api_key)
+    try:
+        keywords = client.search_keyword(value)
+        wanted = normalize_title(value)
+        exact = [item for item in keywords if normalize_title(item.get("name") or "") == wanted]
+        selected = exact or keywords[:1]
+        if not selected:
+            return []
+        media_types = [media_type] if media_type in {"movie", "tv"} else ["movie", "tv"]
+        ids: list[int] = []
+        for selected_type in media_types:
+            for page in range(1, 6):
+                response = client.discover_by_keyword(
+                    int(selected[0]["id"]), selected_type, page
+                )
+                for row in response.get("results", []):
+                    raw_id = int(row["id"])
+                    tmdb_id = tv_catalog_id(raw_id) if selected_type == "tv" else raw_id
+                    if tmdb_id not in ids:
+                        ids.append(tmdb_id)
+                if page >= min(int(response.get("total_pages") or page), 5):
+                    break
+        available, _ = load_or_fetch_details(
+            client,
+            set(ids[:250]),
+            settings.processed_data_dir / "tmdb-rich-details.json",
+        )
+        return [tmdb_id for tmdb_id in ids if tmdb_id in available]
+    except (RetryError, TmdbError):
+        return None
+    finally:
+        client.close()
+
+
+def _parse_metadata_filters(raw: str | None) -> list[dict[str, str]]:
+    if not raw:
+        return []
+    try:
+        values = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail="Invalid filter data") from error
+    if not isinstance(values, list) or len(values) > 10:
+        raise HTTPException(status_code=422, detail="Invalid filter data")
+    return [
+        {"category": str(item.get("category") or ""), "value": str(item.get("value") or "")}
+        for item in values
+        if isinstance(item, dict) and item.get("category") and item.get("value")
+    ]
+
+
+def _expanded_filter_candidate_ids(
+    metadata_filters: list[dict[str, str]],
+    title_filter: str | None,
+    media_type: str,
+) -> list[int] | None:
+    expanded: list[list[int]] = []
+    if title_filter:
+        expanded.append(_tmdb_search_ids(title_filter, None, 25))
+    for selected in metadata_filters:
+        category = selected["category"]
+        value = selected["value"]
+        ids = (
+            _person_filter_candidate_ids(category, value, media_type)
+            if category in {"actors", "directors"}
+            else _theme_filter_candidate_ids(value, media_type)
+            if category == "themes"
+            else None
+        )
+        if ids is not None:
+            expanded.append(ids)
+    if not expanded:
+        return None
+    intersection = set(expanded[0])
+    for values in expanded[1:]:
+        intersection.intersection_update(values)
+    return [value for value in expanded[0] if value in intersection]
+
+
+def _candidate_ids_argument(values: list[int] | None) -> str | None:
+    if values is None:
+        return None
+    return ",".join(str(value) for value in values) or "-999999999"
 
 
 @app.middleware("http")
@@ -1430,9 +1525,14 @@ def delete_profile(user: str, request: ProfileDeleteRequest) -> dict:
 @app.post("/groups/recommendations")
 def group_recommendations(request: GroupRecommendationRequest) -> dict:
     try:
-        person_candidate_ids = _person_filter_candidate_ids(
-            request.metadata_category,
-            request.metadata_value,
+        metadata_filters = [item.model_dump() for item in request.metadata_filters]
+        if request.metadata_category and request.metadata_value:
+            metadata_filters.append(
+                {"category": request.metadata_category, "value": request.metadata_value}
+            )
+        expanded_candidate_ids = _expanded_filter_candidate_ids(
+            metadata_filters,
+            request.title_filter,
             request.media_type,
         )
         report = generate_group_recommendations(
@@ -1447,12 +1547,9 @@ def group_recommendations(request: GroupRecommendationRequest) -> dict:
             genre=request.genre,
             metadata_category=request.metadata_category,
             metadata_value=request.metadata_value,
+            metadata_filters=json.dumps(metadata_filters) if metadata_filters else None,
             media_type=request.media_type,
-            candidate_tmdb_ids=(
-                ",".join(str(value) for value in person_candidate_ids)
-                if person_candidate_ids
-                else None
-            ),
+            candidate_tmdb_ids=_candidate_ids_argument(expanded_candidate_ids),
             include_watched=request.include_watched,
             exclude_any_watched=request.exclude_any_watched,
         )
@@ -1528,17 +1625,24 @@ def recommendations(
     genre: str | None = Query(default=None, max_length=60),
     metadata_category: str | None = Query(default=None, max_length=30),
     metadata_value: str | None = Query(default=None, max_length=200),
+    metadata_filters: str | None = Query(default=None, max_length=3000),
+    title_filter: str | None = Query(default=None, max_length=120),
     media_type: str = Query(default="all", pattern=r"^(all|movie|tv)$"),
     country: str = Query(default="US", pattern=r"^[A-Z]{2}$"),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> dict:
     try:
-        person_candidate_ids = _person_filter_candidate_ids(
-            metadata_category,
-            metadata_value,
+        selected_metadata_filters = _parse_metadata_filters(metadata_filters)
+        if metadata_category and metadata_value:
+            selected_metadata_filters.append(
+                {"category": metadata_category, "value": metadata_value}
+            )
+        expanded_candidate_ids = _expanded_filter_candidate_ids(
+            selected_metadata_filters,
+            title_filter,
             media_type,
         )
-        if media_type != "all" or metadata_category or metadata_value:
+        if media_type != "all" or selected_metadata_filters or title_filter:
             report = generate_recommendations(
                 _latest_artifact(settings.ml_artifacts_dir),
                 user=user,
@@ -1551,12 +1655,13 @@ def recommendations(
                 genre=genre,
                 metadata_category=metadata_category,
                 metadata_value=metadata_value,
-                media_type=media_type,
-                candidate_tmdb_ids=(
-                    ",".join(str(value) for value in person_candidate_ids)
-                    if person_candidate_ids
+                metadata_filters=(
+                    json.dumps(selected_metadata_filters)
+                    if selected_metadata_filters
                     else None
                 ),
+                media_type=media_type,
+                candidate_tmdb_ids=_candidate_ids_argument(expanded_candidate_ids),
                 live_tmdb=media_type == "tv",
                 persist=False,
                 emit=False,
@@ -1708,6 +1813,8 @@ def refresh_recommendations(
     genre: str | None = Query(default=None, max_length=60),
     metadata_category: str | None = Query(default=None, max_length=30),
     metadata_value: str | None = Query(default=None, max_length=200),
+    metadata_filters: str | None = Query(default=None, max_length=3000),
+    title_filter: str | None = Query(default=None, max_length=120),
     media_type: str = Query(default="all", pattern=r"^(all|movie|tv)$"),
     country: str = Query(default="US", pattern=r"^[A-Z]{2}$"),
 ) -> dict:
@@ -1719,9 +1826,14 @@ def refresh_recommendations(
             settings.processed_data_dir / "review-policies" / f"{user}.json",
         )
         clear_group_recommendation_cache()
-        person_candidate_ids = _person_filter_candidate_ids(
-            metadata_category,
-            metadata_value,
+        selected_metadata_filters = _parse_metadata_filters(metadata_filters)
+        if metadata_category and metadata_value:
+            selected_metadata_filters.append(
+                {"category": metadata_category, "value": metadata_value}
+            )
+        expanded_candidate_ids = _expanded_filter_candidate_ids(
+            selected_metadata_filters,
+            title_filter,
             media_type,
         )
         report = generate_recommendations(
@@ -1737,14 +1849,15 @@ def refresh_recommendations(
             genre=genre,
             metadata_category=metadata_category,
             metadata_value=metadata_value,
-            media_type=media_type,
-            candidate_tmdb_ids=(
-                ",".join(str(value) for value in person_candidate_ids)
-                if person_candidate_ids
+            metadata_filters=(
+                json.dumps(selected_metadata_filters)
+                if selected_metadata_filters
                 else None
             ),
+            media_type=media_type,
+            candidate_tmdb_ids=_candidate_ids_argument(expanded_candidate_ids),
             live_tmdb=False,
-            persist=not (metadata_category or metadata_value),
+            persist=not (selected_metadata_filters or title_filter),
             emit=False,
         )
         return _with_display_metadata(report, country)

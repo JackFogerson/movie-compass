@@ -296,6 +296,36 @@ class TmdbClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=8),
     )
+    def search_keyword(self, query: str) -> list[dict]:
+        response = self._client.get("/search/keyword", params={"query": query})
+        _check_response(response, resource="keyword search")
+        return response.json().get("results", [])
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def discover_by_keyword(self, keyword_id: int, media_type: str, page: int = 1) -> dict:
+        resource = "tv" if media_type == "tv" else "movie"
+        response = self._client.get(
+            f"/discover/{resource}",
+            params={
+                "include_adult": "false",
+                "language": "en-US",
+                "page": page,
+                "sort_by": "popularity.desc",
+                "with_keywords": keyword_id,
+            },
+        )
+        _check_response(response, resource=f"{resource} keyword discovery")
+        return response.json()
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
     def tv_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict:
         params = {"append_to_response": append_to_response} if append_to_response else None
         response = self._client.get(f"/tv/{tmdb_id}", params=params)

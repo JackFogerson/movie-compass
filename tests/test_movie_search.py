@@ -146,6 +146,39 @@ def test_actor_filter_expands_exact_person_movie_credits(monkeypatch) -> None:
     ]
 
 
+def test_theme_filter_discovers_tmdb_keyword_titles(monkeypatch) -> None:
+    main = import_module("app.main")
+    monkeypatch.setattr(main.settings, "tmdb_api_key", "test-key")
+
+    class FakeClient:
+        def __init__(self, _key):
+            pass
+
+        def search_keyword(self, query):
+            assert query == "Halloween"
+            return [
+                {"id": 1, "name": "Halloween party"},
+                {"id": 2, "name": "Halloween"},
+            ]
+
+        def discover_by_keyword(self, keyword_id, media_type, page=1):
+            assert keyword_id == 2
+            assert media_type == "movie"
+            return {"results": [{"id": 20}, {"id": 10}], "total_pages": 1}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "TmdbClient", FakeClient)
+    monkeypatch.setattr(
+        main,
+        "load_or_fetch_details",
+        lambda _client, ids, _path: ({value: {} for value in ids}, len(ids)),
+    )
+
+    assert main._theme_filter_candidate_ids("Halloween", "movie") == [20, 10]
+
+
 def test_local_search_includes_cached_tmdb_only_titles(tmp_path: Path, monkeypatch) -> None:
     main = import_module("app.main")
     artifact = tmp_path / "artifacts" / "movielens-32m-test"
