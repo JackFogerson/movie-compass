@@ -58,6 +58,14 @@ POPULARITY_NAMES = {
     "under_the_radar": "Under the radar",
     "unknown": "Unknown or emerging",
 }
+METADATA_FILTER_CATEGORIES = {
+    "themes": "Themes and topics",
+    "directors": "Directors",
+    "actors": "Actors",
+    "languages": "Languages",
+    "countries": "Production countries",
+    "companies": "Production companies",
+}
 
 
 def _named_values(values: object) -> list[str]:
@@ -197,6 +205,79 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
         ),
         "certifications": (us_certification(details) or UNKNOWN_CERTIFICATION,),
     }
+
+
+def metadata_filter_labels(details: dict, category: str) -> tuple[str, ...]:
+    """Return catalog labels for one filterable rich-metadata category."""
+    if category not in METADATA_FILTER_CATEGORIES:
+        raise ValueError(f"Unsupported metadata filter category: {category}")
+    release = str(details.get("release_date") or details.get("first_air_date") or "")
+    year = int(release[:4]) if release[:4].isdigit() else None
+    movie = {"year": year, "runtime": details.get("runtime")}
+    return movie_category_labels(movie, details)[category]
+
+
+def matches_metadata_filter(details: dict, category: str, value: str) -> bool:
+    """Match a selected suggestion using the same labels shown in profile statistics."""
+    return any(
+        category_label_matches(label, value)
+        for label in metadata_filter_labels(details, category)
+    )
+
+
+def metadata_filter_options(
+    details_by_id: dict[str, dict],
+    category: str,
+    *,
+    query: str = "",
+    limit: int = 12,
+    option_index: dict[str, dict[str, int]] | None = None,
+) -> dict:
+    """Build stable catalog-wide suggestions, favoring prefix matches and common labels."""
+    if category not in METADATA_FILTER_CATEGORIES:
+        raise ValueError(f"Unsupported metadata filter category: {category}")
+    counts = (option_index or build_metadata_filter_index(details_by_id))[category]
+    normalized_query = query.casefold().strip()
+    matches = [
+        (label, count)
+        for label, count in counts.items()
+        if not normalized_query or normalized_query in label.casefold()
+    ]
+    matches.sort(
+        key=lambda item: (
+            0 if item[0].casefold().startswith(normalized_query) else 1,
+            -item[1],
+            item[0].casefold(),
+        )
+    )
+    option_mode = "select" if len(counts) <= 18 else "search"
+    returned = matches if option_mode == "select" else matches[:limit]
+    return {
+        "category": category,
+        "label": METADATA_FILTER_CATEGORIES[category],
+        "mode": option_mode,
+        "total": len(counts),
+        "query": query,
+        "options": [
+            {"value": label, "films": count} for label, count in returned
+        ],
+    }
+
+
+def build_metadata_filter_index(
+    details_by_id: dict[str, dict],
+) -> dict[str, dict[str, int]]:
+    """Precompute catalog trait counts so each type-ahead keystroke stays inexpensive."""
+    index: dict[str, dict[str, int]] = {
+        category: defaultdict(int) for category in METADATA_FILTER_CATEGORIES
+    }
+    for details in details_by_id.values():
+        if not isinstance(details, dict) or details.get("missing") is True:
+            continue
+        for category in METADATA_FILTER_CATEGORIES:
+            for label in metadata_filter_labels(details, category):
+                index[category][label] += 1
+    return {category: dict(counts) for category, counts in index.items()}
 
 
 def build_taste_breakdown(

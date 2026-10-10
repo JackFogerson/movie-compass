@@ -1,6 +1,8 @@
 from app.services.profile_stats import (
     build_taste_breakdown,
     category_label_matches,
+    matches_metadata_filter,
+    metadata_filter_options,
     metadata_match_stat_target,
     movie_category_labels,
 )
@@ -126,6 +128,43 @@ def test_production_company_ranking_descriptor_maps_to_stats() -> None:
         "companies",
         "Pixar Animation Studios",
     )
+
+
+def test_catalog_metadata_filters_offer_dropdowns_and_typeahead_suggestions() -> None:
+    details = {
+        str(index): {
+            "keywords": {"keywords": [{"name": f"theme {index}"}]},
+            "production_companies": [{"name": "Blumhouse Productions"}],
+        }
+        for index in range(20)
+    }
+    details["20"] = {
+        "keywords": {
+            "keywords": [
+                {"name": "halloween"},
+                {"name": "high school"},
+                {"name": "happy"},
+            ]
+        },
+        "production_companies": [{"name": "Pixar Animation Studios"}],
+    }
+
+    company_options = metadata_filter_options(details, "companies")
+    theme_options = metadata_filter_options(details, "themes", query="h")
+
+    assert company_options["mode"] == "select"
+    assert {item["value"] for item in company_options["options"]} == {
+        "Blumhouse Productions",
+        "Pixar Animation Studios",
+    }
+    assert theme_options["mode"] == "search"
+    assert {item["value"] for item in theme_options["options"]} >= {
+        "Halloween",
+        "High school",
+        "Happy",
+    }
+    assert matches_metadata_filter(details["20"], "themes", "Halloween")
+    assert not matches_metadata_filter(details["20"], "themes", "haunted house")
 
 
 def test_full_taste_breakdown_keeps_singletons_without_truncation() -> None:

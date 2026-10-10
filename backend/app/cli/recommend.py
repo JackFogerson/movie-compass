@@ -19,6 +19,10 @@ from app.services.personal_ratings import (
     personal_tmdb_ratings,
     personal_tmdb_reviews,
 )
+from app.services.profile_stats import (
+    METADATA_FILTER_CATEGORIES,
+    matches_metadata_filter,
+)
 from app.services.review_policy import load_review_policy
 from ingestion.tmdb.client import TmdbClient, normalize_tv_search_result
 from ingestion.tmdb.details_cache import load_or_fetch_details
@@ -100,6 +104,8 @@ def main(
     minimum_movielens_ratings: int = 100,
     popularity_tier: str = "all",
     genre: str | None = None,
+    metadata_category: str | None = None,
+    metadata_value: str | None = None,
     media_type: str = "all",
     title_query: str | None = None,
     candidate_tmdb_ids: str | None = None,
@@ -155,6 +161,12 @@ def main(
         )
     if media_type not in {"all", "movie", "tv"}:
         raise typer.BadParameter("media_type must be one of: all, movie, tv")
+    if bool(metadata_category) != bool(metadata_value):
+        raise typer.BadParameter(
+            "metadata_category and metadata_value must be provided together"
+        )
+    if metadata_category and metadata_category not in METADATA_FILTER_CATEGORIES:
+        raise typer.BadParameter(f"Unsupported metadata filter: {metadata_category}")
     excluded = _excluded_tmdb_ids(
         user,
         include_watchlist=include_watchlist,
@@ -384,6 +396,12 @@ def main(
                 for value in item.get("genres", [])
             }
         ]
+    if metadata_category and metadata_value:
+        eligible_candidates = [
+            item
+            for item in eligible_candidates
+            if matches_metadata_filter(item, metadata_category, metadata_value)
+        ]
     if candidate_tmdb_ids:
         requested_ids = {
             int(value.strip())
@@ -477,6 +495,10 @@ def main(
         "scope": scope,
         "popularity_tier": popularity_tier,
         "genre_filter": genre,
+        "metadata_filter": {
+            "category": metadata_category,
+            "value": metadata_value,
+        },
         "media_type_filter": media_type,
         "year_filter": {"minimum": year_min, "maximum": year_max},
         "runtime_filter": {"minimum": runtime_min, "maximum": runtime_max},
