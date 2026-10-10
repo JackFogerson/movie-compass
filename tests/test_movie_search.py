@@ -103,6 +103,49 @@ def test_tmdb_score_search_reports_outage_instead_of_false_no_match(monkeypatch)
     assert "temporarily unreachable" in error.value.detail
 
 
+def test_actor_filter_expands_exact_person_movie_credits(monkeypatch) -> None:
+    main = import_module("app.main")
+    monkeypatch.setattr(main.settings, "tmdb_api_key", "test-key")
+
+    class FakeClient:
+        def __init__(self, _key):
+            pass
+
+        def search_person(self, name, *, include_adult=False):
+            assert name == "Anna Kendrick"
+            assert include_adult is False
+            return [
+                {"id": 99, "name": "Anna Kendrick", "popularity": 20},
+                {"id": 98, "name": "Anna Kendrick Tribute", "popularity": 100},
+            ]
+
+        def person_combined_credits(self, person_id):
+            assert person_id == 99
+            return {
+                "cast": [
+                    {"id": 10, "media_type": "movie", "popularity": 3},
+                    {"id": 20, "media_type": "movie", "popularity": 8},
+                    {"id": 30, "media_type": "tv", "popularity": 12},
+                    {"id": 40, "media_type": "movie", "popularity": 20, "adult": True},
+                ]
+            }
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "TmdbClient", FakeClient)
+    monkeypatch.setattr(
+        main,
+        "load_or_fetch_details",
+        lambda _client, ids, _path: ({value: {} for value in ids}, len(ids)),
+    )
+
+    assert main._person_filter_candidate_ids("actors", "Anna Kendrick", "movie") == [
+        20,
+        10,
+    ]
+
+
 def test_local_search_includes_cached_tmdb_only_titles(tmp_path: Path, monkeypatch) -> None:
     main = import_module("app.main")
     artifact = tmp_path / "artifacts" / "movielens-32m-test"

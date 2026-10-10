@@ -273,6 +273,29 @@ class TmdbClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=8),
     )
+    def search_person(self, name: str, *, include_adult: bool = False) -> list[dict]:
+        response = self._client.get(
+            "/search/person",
+            params={"query": name, "include_adult": str(include_adult).lower()},
+        )
+        _check_response(response, resource="person search")
+        return response.json().get("results", [])
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
+    def person_combined_credits(self, person_id: int) -> dict:
+        response = self._client.get(f"/person/{person_id}/combined_credits")
+        _check_response(response, resource=f"person {person_id} credits")
+        return response.json()
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
     def tv_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict:
         params = {"append_to_response": append_to_response} if append_to_response else None
         response = self._client.get(f"/tv/{tmdb_id}", params=params)

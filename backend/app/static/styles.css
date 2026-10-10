@@ -311,6 +311,21 @@ button:disabled { cursor: not-allowed; opacity: .66; }
   border-radius: 14px;
   background: rgba(17, 21, 26, .95);
 }
+.trait-filter {
+  grid-column: span 2;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, .7fr) minmax(200px, 1fr);
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #344353;
+  border-radius: 10px;
+  background: #0d1217;
+}
+.trait-filter-copy { align-self: center; }
+.trait-filter-copy strong, .trait-filter-copy small { display: block; }
+.trait-filter-copy strong { color: var(--text); font-size: .82rem; }
+.trait-filter-copy small { margin-top: 4px; color: var(--muted); font-size: .66rem; font-weight: 400; line-height: 1.4; }
 .movie-search {
   display: grid;
   grid-template-columns: 1.1fr 1.5fr minmax(130px, .55fr) auto;
@@ -463,6 +478,8 @@ summary { cursor: pointer; }
   .danger-zone { grid-template-columns: 1fr 1fr; }
   .danger-zone > div { grid-column: 1 / -1; }
   .controls { grid-template-columns: 1fr 1fr; }
+  .trait-filter { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+  .trait-filter-copy { grid-column: 1 / -1; }
   .controls button { grid-column: 1 / -1; }
   .movie-search { grid-template-columns: 1fr 1fr; }
   .movie-search > div { grid-column: 1 / -1; }
