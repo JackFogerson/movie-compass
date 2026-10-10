@@ -356,6 +356,34 @@ class TmdbClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(min=1, max=8),
     )
+    def discover_filtered(
+        self,
+        media_type: str,
+        *,
+        page: int = 1,
+        filters: dict[str, str | int] | None = None,
+    ) -> dict:
+        """Run one combined TMDB discovery query for the active UI filters."""
+        if media_type not in {"movie", "tv"}:
+            raise ValueError("media_type must be movie or tv")
+        params: dict[str, str | int] = {
+            "include_adult": "false",
+            "language": "en-US",
+            "page": page,
+            "sort_by": "popularity.desc",
+        }
+        if media_type == "movie":
+            params["include_video"] = "false"
+        params.update(filters or {})
+        response = self._client.get(f"/discover/{media_type}", params=params)
+        _check_response(response, resource=f"filtered {media_type} discovery")
+        return response.json()
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=8),
+    )
     def tv_details(self, tmdb_id: int, append_to_response: str | None = None) -> dict:
         params = {"append_to_response": append_to_response} if append_to_response else None
         response = self._client.get(f"/tv/{tmdb_id}", params=params)

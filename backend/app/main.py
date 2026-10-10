@@ -2,6 +2,7 @@ import csv
 import gzip
 import io
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import date
 from decimal import Decimal
@@ -35,6 +36,7 @@ from app.services.local_catalog_mapping import map_pending_from_artifact
 from app.services.profile_accuracy import profile_accuracy as evaluate_profile_accuracy
 from app.services.profile_export import build_profile_archive, restore_profile_archive
 from app.services.profile_stats import (
+    LANGUAGE_NAMES,
     build_metadata_filter_index,
     build_taste_breakdown,
     category_label_matches,
@@ -61,13 +63,34 @@ from ingestion.tmdb.client import (
     tv_catalog_id,
 )
 from ingestion.tmdb.daily_export import load_catalog_summary
-from ingestion.tmdb.details_cache import load_or_fetch_details
+from ingestion.tmdb.details_cache import load_or_fetch_details, merge_discovery_results
+from recommendation.ranking.current_catalog import TMDB_GENRES
 
 settings = get_settings()
 configure_logging(settings.log_level)
 app = FastAPI(title="Personal Movie Recommender", version="0.1.0")
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+TV_GENRES = {
+    10759: "Action & Adventure",
+    16: "Animation",
+    35: "Comedy",
+    80: "Crime",
+    99: "Documentary",
+    18: "Drama",
+    10751: "Family",
+    10762: "Kids",
+    9648: "Mystery",
+    10763: "News",
+    10764: "Reality",
+    10765: "Sci-Fi & Fantasy",
+    10766: "Soap",
+    10767: "Talk",
+    10768: "War & Politics",
+    37: "Western",
+}
+DISCOVERY_MAX_PAGES = 500
 
 
 class MetadataFilterRequest(BaseModel):
@@ -87,6 +110,8 @@ class GroupRecommendationRequest(BaseModel):
     metadata_value: str | None = Field(default=None, max_length=200)
     metadata_filters: list[MetadataFilterRequest] = Field(default_factory=list, max_length=10)
     title_filter: str | None = Field(default=None, max_length=120)
+    certification: str | None = Field(default=None, max_length=20)
+    availability: str = Field(default="all", pattern=r"^(all|listed|subscription|free|rent_buy)$")
     media_type: str = Field(default="movie", pattern=r"^(all|movie|tv)$")
     country: str = Field(default="US", pattern=r"^[A-Z]{2}$")
     include_watched: bool = False
@@ -242,10 +267,7 @@ def _local_movie_search_results(query: str, year: int | None, limit: int) -> lis
         except (OSError, json.JSONDecodeError):
             continue
         for raw_tmdb_id, details in cached.items():
-            if (
-                not str(raw_tmdb_id).lstrip("-").isdigit()
-                or int(raw_tmdb_id) not in wanted_ids
-            ):
+            if not str(raw_tmdb_id).lstrip("-").isdigit() or int(raw_tmdb_id) not in wanted_ids:
                 continue
             tmdb_id = int(raw_tmdb_id)
             current = by_id.setdefault(tmdb_id, {})
@@ -350,9 +372,7 @@ def _person_filter_candidate_ids(
             row_type = row.get("media_type") or ("tv" if row.get("name") else "movie")
             if media_type != "all" and row_type != media_type:
                 continue
-            tmdb_id = (
-                tv_catalog_id(int(row["id"])) if row_type == "tv" else int(row["id"])
-            )
+            tmdb_id = tv_catalog_id(int(row["id"])) if row_type == "tv" else int(row["id"])
             if tmdb_id not in ids:
                 ids.append(tmdb_id)
         available, _ = load_or_fetch_details(
@@ -383,9 +403,7 @@ def _theme_filter_candidate_ids(value: str, media_type: str) -> list[int] | None
         ids: list[int] = []
         for selected_type in media_types:
             for page in range(1, 6):
-                response = client.discover_by_keyword(
-                    int(selected[0]["id"]), selected_type, page
-                )
+                response = client.discover_by_keyword(int(selected[0]["id"]), selected_type, page)
                 for row in response.get("results", []):
                     raw_id = int(row["id"])
                     tmdb_id = tv_catalog_id(raw_id) if selected_type == "tv" else raw_id
@@ -427,17 +445,13 @@ def _company_filter_candidate_ids(value: str, media_type: str) -> list[int] | No
         for company in selected:
             for selected_type in media_types:
                 for page in range(1, 6):
-                    response = client.discover_by_company(
-                        int(company["id"]), selected_type, page
-                    )
+                    response = client.discover_by_company(int(company["id"]), selected_type, page)
                     for row in response.get("results", []):
                         raw_id = int(row["id"])
                         tmdb_id = tv_catalog_id(raw_id) if selected_type == "tv" else raw_id
                         if tmdb_id not in ids:
                             ids.append(tmdb_id)
-                    if len(ids) >= 250 or page >= min(
-                        int(response.get("total_pages") or page), 5
-                    ):
+                    if len(ids) >= 250 or page >= min(int(response.get("total_pages") or page), 5):
                         break
                 if len(ids) >= 250:
                     break
@@ -499,6 +513,385 @@ def _expanded_filter_candidate_ids(
     for values in expanded[1:]:
         intersection.intersection_update(values)
     return [value for value in expanded[0] if value in intersection]
+
+
+def _cached_metadata_code(field: str, requested: str) -> str | None:
+    """Resolve a human-readable cached language/country label to its TMDB code."""
+    normalized = normalize_title(requested.replace("-language", ""))
+    if field == "original_language":
+        for code, label in LANGUAGE_NAMES.items():
+            if normalize_title(label.replace("-language", "")) == normalized:
+                return code
+        if len(requested.strip()) in {2, 3}:
+            return requested.strip().casefold()
+        return None
+    cache_path = settings.processed_data_dir / "tmdb-rich-details.json"
+    if not cache_path.exists():
+        return requested.strip().upper() if len(requested.strip()) == 2 else None
+    try:
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    for details in cached.values():
+        for country in details.get("production_countries") or []:
+            if normalize_title(str(country.get("name") or "")) == normalized:
+                return str(country.get("iso_3166_1") or "").upper() or None
+    return requested.strip().upper() if len(requested.strip()) == 2 else None
+
+
+def _best_named_result(values: list[dict], requested: str) -> dict | None:
+    wanted = normalize_title(requested)
+    exact = [item for item in values if normalize_title(item.get("name") or "") == wanted]
+    candidates = exact or values
+    return (
+        max(candidates, key=lambda item: float(item.get("popularity") or 0.0))
+        if candidates
+        else None
+    )
+
+
+def _discover_filtered_candidate_ids(
+    metadata_filters: list[dict[str, str]],
+    title_filter: str | None,
+    media_type: str,
+    *,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    runtime_min: int | None = None,
+    runtime_max: int | None = None,
+    genre: str | None = None,
+    certification: str | None = None,
+    availability: str = "all",
+    popularity: str = "all",
+) -> tuple[list[int] | None, dict | None]:
+    """Discover the complete TMDB-filtered pool, then cache lightweight scoring rows."""
+    has_discovery_filter = any(
+        value not in {None, "", "all"}
+        for value in (
+            year_min,
+            year_max,
+            runtime_min,
+            runtime_max,
+            genre,
+            certification,
+            availability,
+            popularity,
+        )
+    ) or bool(metadata_filters)
+    if not has_discovery_filter:
+        ids = _tmdb_search_ids(title_filter, None, 100) if title_filter else None
+        coverage = (
+            {
+                "mode": "tmdb_title_search",
+                "matches_reported": len(ids or []),
+                "matches_retrieved": len(ids or []),
+                "pages_scanned": 1,
+                "truncated": False,
+            }
+            if title_filter
+            else None
+        )
+        return ids, coverage
+    if not settings.tmdb_api_key:
+        return _expanded_filter_candidate_ids(metadata_filters, title_filter, media_type), None
+    if media_type == "all":
+        movie_ids, movie_coverage = _discover_filtered_candidate_ids(
+            metadata_filters,
+            title_filter,
+            "movie",
+            year_min=year_min,
+            year_max=year_max,
+            runtime_min=runtime_min,
+            runtime_max=runtime_max,
+            genre=genre,
+            certification=certification,
+            availability=availability,
+            popularity=popularity,
+        )
+        tv_ids, tv_coverage = _discover_filtered_candidate_ids(
+            metadata_filters,
+            title_filter,
+            "tv",
+            year_min=year_min,
+            year_max=year_max,
+            runtime_min=runtime_min,
+            runtime_max=runtime_max,
+            genre=genre,
+            certification=certification,
+            availability=availability,
+            popularity=popularity,
+        )
+        ids = list(dict.fromkeys([*(movie_ids or []), *(tv_ids or [])]))
+        coverages = [value for value in (movie_coverage, tv_coverage) if value]
+        return ids, {
+            "mode": "tmdb_discover",
+            "matches_reported": sum(int(value.get("matches_reported") or 0) for value in coverages),
+            "matches_retrieved": len(ids),
+            "pages_scanned": sum(int(value.get("pages_scanned") or 0) for value in coverages),
+            "page_cap": DISCOVERY_MAX_PAGES,
+            "truncated": any(bool(value.get("truncated")) for value in coverages),
+        }
+
+    client = TmdbClient(settings.tmdb_api_key)
+    try:
+        params: dict[str, str | int] = {}
+        if year_min:
+            params["first_air_date.gte" if media_type == "tv" else "primary_release_date.gte"] = (
+                f"{year_min}-01-01"
+            )
+        if year_max:
+            params["first_air_date.lte" if media_type == "tv" else "primary_release_date.lte"] = (
+                f"{year_max}-12-31"
+            )
+        if runtime_min:
+            params["with_runtime.gte"] = runtime_min
+        if runtime_max:
+            params["with_runtime.lte"] = runtime_max
+        if genre:
+            aliases = (
+                {
+                    "Action": "Action & Adventure",
+                    "Adventure": "Action & Adventure",
+                    "Science Fiction": "Sci-Fi & Fantasy",
+                    "Fantasy": "Sci-Fi & Fantasy",
+                    "War": "War & Politics",
+                }
+                if media_type == "tv"
+                else {
+                    "Music": "Musical",
+                    "Science Fiction": "Sci-Fi",
+                    "Family": "Children",
+                }
+            )
+            lookup = aliases.get(genre, genre).casefold()
+            genre_map = TV_GENRES if media_type == "tv" else TMDB_GENRES
+            genre_id = next(
+                (key for key, value in genre_map.items() if value.casefold() == lookup), None
+            )
+            if genre_id is None:
+                return [], {
+                    "mode": "tmdb_discover",
+                    "matches_reported": 0,
+                    "matches_retrieved": 0,
+                    "pages_scanned": 0,
+                    "truncated": False,
+                }
+            params["with_genres"] = genre_id
+
+        injected: dict[str, object] = {"_tmdb_discovery_prefiltered": True}
+        person_filters: dict[str, list[str]] = {"actors": [], "directors": []}
+        keyword_groups: list[str] = []
+        company_groups: list[str] = []
+        languages: list[str] = []
+        countries: list[str] = []
+        for selected in metadata_filters:
+            category, value = selected["category"], selected["value"]
+            if category in person_filters:
+                person = _best_named_result(client.search_person(value), value)
+                if person is None:
+                    return [], {
+                        "mode": "tmdb_discover",
+                        "matches_reported": 0,
+                        "matches_retrieved": 0,
+                        "pages_scanned": 0,
+                        "truncated": False,
+                    }
+                person_filters[category].append(str(int(person["id"])))
+                credits = injected.setdefault("credits", {"cast": [], "crew": []})
+                if category == "actors":
+                    credits["cast"].append(
+                        {"id": int(person["id"]), "name": person.get("name") or value}
+                    )
+                else:
+                    credits["crew"].append(
+                        {
+                            "id": int(person["id"]),
+                            "name": person.get("name") or value,
+                            "job": "Director",
+                        }
+                    )
+            elif category == "themes":
+                keyword = _best_named_result(client.search_keyword(value), value)
+                if keyword is None:
+                    return [], {
+                        "mode": "tmdb_discover",
+                        "matches_reported": 0,
+                        "matches_retrieved": 0,
+                        "pages_scanned": 0,
+                        "truncated": False,
+                    }
+                keyword_groups.append(str(int(keyword["id"])))
+                injected.setdefault("keywords", {"keywords": []})["keywords"].append(
+                    {"id": int(keyword["id"]), "name": keyword.get("name") or value}
+                )
+            elif category == "companies":
+                companies = client.search_company(value)
+                wanted = normalize_title(value).replace(" ", "")
+                related = [
+                    item
+                    for item in companies
+                    if wanted in normalize_title(item.get("name") or "").replace(" ", "")
+                    or normalize_title(item.get("name") or "").replace(" ", "") in wanted
+                ][:10]
+                selected_companies = related or companies[:1]
+                if not selected_companies:
+                    return [], {
+                        "mode": "tmdb_discover",
+                        "matches_reported": 0,
+                        "matches_retrieved": 0,
+                        "pages_scanned": 0,
+                        "truncated": False,
+                    }
+                company_groups.append("|".join(str(int(item["id"])) for item in selected_companies))
+                injected.setdefault("production_companies", []).extend(
+                    {"id": int(item["id"]), "name": item.get("name") or value}
+                    for item in selected_companies
+                )
+            elif category == "languages":
+                code = _cached_metadata_code("original_language", value)
+                if code:
+                    languages.append(code)
+            elif category == "countries":
+                code = _cached_metadata_code("production_countries", value)
+                if code:
+                    countries.append(code)
+                    injected.setdefault("production_countries", []).append(
+                        {"iso_3166_1": code, "name": value}
+                    )
+        if any(len(values) > 1 for values in (languages, countries)):
+            return [], {
+                "mode": "tmdb_discover",
+                "matches_reported": 0,
+                "matches_retrieved": 0,
+                "pages_scanned": 0,
+                "truncated": False,
+            }
+        if person_filters["actors"] and media_type == "movie":
+            params["with_cast"] = ",".join(person_filters["actors"])
+        elif person_filters["actors"]:
+            params["with_people"] = ",".join(person_filters["actors"])
+        if person_filters["directors"] and media_type == "movie":
+            params["with_crew"] = ",".join(person_filters["directors"])
+        elif person_filters["directors"]:
+            params["with_people"] = ",".join(
+                [*person_filters["actors"], *person_filters["directors"]]
+            )
+        if keyword_groups:
+            params["with_keywords"] = ",".join(keyword_groups)
+        if company_groups:
+            params["with_companies"] = ",".join(company_groups)
+        if languages:
+            params["with_original_language"] = languages[0]
+            injected["original_language"] = languages[0]
+        if countries:
+            params["with_origin_country"] = countries[0]
+        if certification and certification != "all" and media_type == "movie":
+            certification_map = {
+                "g": "G",
+                "pg": "PG",
+                "pg-13": "PG-13",
+                "r": "R",
+                "nc-17": "NC-17",
+            }
+            if certification in certification_map:
+                params.update(
+                    {
+                        "certification_country": "US",
+                        "certification": certification_map[certification],
+                    }
+                )
+        vote_ranges = {
+            "blockbuster": (10_000, None),
+            "popular": (2_500, None),
+            "cult_classic": (250, None),
+            "under_the_radar": (25, None),
+            "unknown": (None, 24),
+        }
+        minimum_votes, maximum_votes = vote_ranges.get(popularity, (None, None))
+        if minimum_votes is not None:
+            params["vote_count.gte"] = minimum_votes
+        if maximum_votes is not None:
+            params["vote_count.lte"] = maximum_votes
+            params["sort_by"] = "popularity.asc"
+        availability_types = {
+            "listed": "flatrate|free|ads|rent|buy",
+            "subscription": "flatrate",
+            "free": "free|ads",
+            "rent_buy": "rent|buy",
+        }
+        if availability in availability_types:
+            params.update(
+                {
+                    "watch_region": "US",
+                    "with_watch_monetization_types": availability_types[availability],
+                }
+            )
+
+        media_types = [media_type] if media_type in {"movie", "tv"} else ["movie", "tv"]
+        all_rows: list[dict] = []
+        total_reported = 0
+        pages_scanned = 0
+        truncated = False
+        for selected_type in media_types:
+            first = client.discover_filtered(selected_type, page=1, filters=params)
+            total_reported += int(first.get("total_results") or 0)
+            total_pages = int(first.get("total_pages") or 1)
+            page_limit = min(total_pages, DISCOVERY_MAX_PAGES)
+            truncated = truncated or total_pages > DISCOVERY_MAX_PAGES
+            page_results = {1: first}
+            if page_limit > 1:
+                with ThreadPoolExecutor(max_workers=min(12, page_limit - 1)) as executor:
+                    futures = {
+                        executor.submit(
+                            client.discover_filtered, selected_type, page=page, filters=params
+                        ): page
+                        for page in range(2, page_limit + 1)
+                    }
+                    for future in as_completed(futures):
+                        page_results[futures[future]] = future.result()
+            pages_scanned += page_limit
+            genre_map = TV_GENRES if selected_type == "tv" else TMDB_GENRES
+            for page in range(1, page_limit + 1):
+                for raw in page_results[page].get("results", []):
+                    row = normalize_tv_search_result(raw) if selected_type == "tv" else dict(raw)
+                    row["media_type"] = selected_type
+                    row["genres"] = [
+                        {"id": genre_id, "name": genre_map[genre_id]}
+                        for genre_id in row.get("genre_ids", [])
+                        if genre_id in genre_map
+                    ]
+                    for key, value in injected.items():
+                        row.setdefault(key, value)
+                    all_rows.append(row)
+
+        if title_filter:
+            title_ids = set(_tmdb_search_ids(title_filter, None, 100))
+            all_rows = [row for row in all_rows if int(row["id"]) in title_ids]
+            total_reported = len(all_rows)
+        unique_rows = {int(row["id"]): row for row in all_rows}
+        merge_discovery_results(
+            settings.processed_data_dir / "tmdb-rich-details.json",
+            list(unique_rows.values()),
+        )
+        coverage = {
+            "mode": "tmdb_discover",
+            "matches_reported": total_reported,
+            "matches_retrieved": len(unique_rows),
+            "pages_scanned": pages_scanned,
+            "page_cap": DISCOVERY_MAX_PAGES,
+            "truncated": truncated,
+        }
+        return list(unique_rows), coverage
+    except (RetryError, TmdbError):
+        return _expanded_filter_candidate_ids(metadata_filters, title_filter, media_type), {
+            "mode": "offline_catalog_fallback",
+            "matches_reported": None,
+            "matches_retrieved": None,
+            "pages_scanned": 0,
+            "truncated": True,
+        }
+    finally:
+        client.close()
 
 
 def _candidate_ids_argument(values: list[int] | None) -> str | None:
@@ -1021,9 +1414,7 @@ def profile_descriptor_stat(
             }
         )
     matching_ratings = [movie["rating"] for movie in movies]
-    observed_average = (
-        sum(matching_ratings) / len(matching_ratings) if matching_ratings else None
-    )
+    observed_average = sum(matching_ratings) / len(matching_ratings) if matching_ratings else None
     expected_rating = (
         (sum(matching_ratings) + 3 * profile_average) / (len(matching_ratings) + 3)
         if matching_ratings
@@ -1217,9 +1608,7 @@ def rating_movie_search(
             results_by_id = {
                 int(item["id"]): item for item in [*local_results, *live_results] if item.get("id")
             }
-            ranked_results = rank_title_search_results(
-                q, [*live_results, *local_results], 12
-            )
+            ranked_results = rank_title_search_results(q, [*live_results, *local_results], 12)
             ordered_ids = [int(item["id"]) for item in ranked_results if item.get("id")]
             results = [results_by_id[item_id] for item_id in dict.fromkeys(ordered_ids)][:12]
             search_warning = None
@@ -1582,10 +1971,18 @@ def group_recommendations(request: GroupRecommendationRequest) -> dict:
             metadata_filters.append(
                 {"category": request.metadata_category, "value": request.metadata_value}
             )
-        expanded_candidate_ids = _expanded_filter_candidate_ids(
+        expanded_candidate_ids, discovery_coverage = _discover_filtered_candidate_ids(
             metadata_filters,
             request.title_filter,
             request.media_type,
+            year_min=request.year_min,
+            year_max=request.year_max,
+            runtime_min=request.runtime_min,
+            runtime_max=request.runtime_max,
+            genre=request.genre,
+            certification=request.certification,
+            availability=request.availability,
+            popularity=request.popularity,
         )
         report = generate_group_recommendations(
             _latest_artifact(settings.ml_artifacts_dir),
@@ -1605,6 +2002,9 @@ def group_recommendations(request: GroupRecommendationRequest) -> dict:
             include_watched=request.include_watched,
             exclude_any_watched=request.exclude_any_watched,
         )
+        if discovery_coverage:
+            discovery_coverage["candidates_scored"] = int(report.get("eligible_for_everyone") or 0)
+            report["discovery_coverage"] = discovery_coverage
         return _with_display_metadata(report, request.country)
     except (ValueError, typer.BadParameter) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -1679,6 +2079,9 @@ def recommendations(
     metadata_value: str | None = Query(default=None, max_length=200),
     metadata_filters: str | None = Query(default=None, max_length=3000),
     title_filter: str | None = Query(default=None, max_length=120),
+    certification: str | None = Query(default=None, max_length=20),
+    availability: str = Query(default="all", pattern=r"^(all|listed|subscription|free|rent_buy)$"),
+    popularity: str = Query(default="all"),
     media_type: str = Query(default="all", pattern=r"^(all|movie|tv)$"),
     country: str = Query(default="US", pattern=r"^[A-Z]{2}$"),
     limit: int = Query(default=20, ge=1, le=100),
@@ -1689,12 +2092,29 @@ def recommendations(
             selected_metadata_filters.append(
                 {"category": metadata_category, "value": metadata_value}
             )
-        expanded_candidate_ids = _expanded_filter_candidate_ids(
-            selected_metadata_filters,
-            title_filter,
-            media_type,
-        )
-        if media_type != "all" or selected_metadata_filters or title_filter:
+        if any(
+            (
+                media_type != "all",
+                bool(selected_metadata_filters),
+                bool(title_filter),
+                certification not in {None, "all"},
+                availability != "all",
+                popularity != "all",
+            )
+        ):
+            expanded_candidate_ids, discovery_coverage = _discover_filtered_candidate_ids(
+                selected_metadata_filters,
+                title_filter,
+                media_type,
+                year_min=year_min,
+                year_max=year_max,
+                runtime_min=runtime_min,
+                runtime_max=runtime_max,
+                genre=genre,
+                certification=certification,
+                availability=availability,
+                popularity=popularity,
+            )
             report = generate_recommendations(
                 _latest_artifact(settings.ml_artifacts_dir),
                 user=user,
@@ -1705,12 +2125,11 @@ def recommendations(
                 runtime_min=runtime_min,
                 runtime_max=runtime_max,
                 genre=genre,
+                popularity_tier=popularity,
                 metadata_category=metadata_category,
                 metadata_value=metadata_value,
                 metadata_filters=(
-                    json.dumps(selected_metadata_filters)
-                    if selected_metadata_filters
-                    else None
+                    json.dumps(selected_metadata_filters) if selected_metadata_filters else None
                 ),
                 media_type=media_type,
                 candidate_tmdb_ids=_candidate_ids_argument(expanded_candidate_ids),
@@ -1718,6 +2137,11 @@ def recommendations(
                 persist=False,
                 emit=False,
             )
+            if discovery_coverage:
+                discovery_coverage["candidates_scored"] = int(
+                    report.get("candidates_considered") or 0
+                )
+                report["discovery_coverage"] = discovery_coverage
             return _with_display_metadata(report, country)
         report = load_recommendation_report(
             settings.ml_artifacts_dir,
@@ -1867,6 +2291,8 @@ def refresh_recommendations(
     metadata_value: str | None = Query(default=None, max_length=200),
     metadata_filters: str | None = Query(default=None, max_length=3000),
     title_filter: str | None = Query(default=None, max_length=120),
+    certification: str | None = Query(default=None, max_length=20),
+    availability: str = Query(default="all", pattern=r"^(all|listed|subscription|free|rent_buy)$"),
     media_type: str = Query(default="all", pattern=r"^(all|movie|tv)$"),
     country: str = Query(default="US", pattern=r"^[A-Z]{2}$"),
 ) -> dict:
@@ -1883,10 +2309,18 @@ def refresh_recommendations(
             selected_metadata_filters.append(
                 {"category": metadata_category, "value": metadata_value}
             )
-        expanded_candidate_ids = _expanded_filter_candidate_ids(
+        expanded_candidate_ids, discovery_coverage = _discover_filtered_candidate_ids(
             selected_metadata_filters,
             title_filter,
             media_type,
+            year_min=year_min,
+            year_max=year_max,
+            runtime_min=runtime_min,
+            runtime_max=runtime_max,
+            genre=genre,
+            certification=certification,
+            availability=availability,
+            popularity=popularity,
         )
         report = generate_recommendations(
             _latest_artifact(settings.ml_artifacts_dir),
@@ -1902,9 +2336,7 @@ def refresh_recommendations(
             metadata_category=metadata_category,
             metadata_value=metadata_value,
             metadata_filters=(
-                json.dumps(selected_metadata_filters)
-                if selected_metadata_filters
-                else None
+                json.dumps(selected_metadata_filters) if selected_metadata_filters else None
             ),
             media_type=media_type,
             candidate_tmdb_ids=_candidate_ids_argument(expanded_candidate_ids),
@@ -1912,6 +2344,9 @@ def refresh_recommendations(
             persist=not (selected_metadata_filters or title_filter),
             emit=False,
         )
+        if discovery_coverage:
+            discovery_coverage["candidates_scored"] = int(report.get("candidates_considered") or 0)
+            report["discovery_coverage"] = discovery_coverage
         return _with_display_metadata(report, country)
     except (ValueError, typer.BadParameter) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

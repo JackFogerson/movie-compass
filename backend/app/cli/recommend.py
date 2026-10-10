@@ -402,9 +402,15 @@ def main(
         eligible_candidates = [
             item
             for item in eligible_candidates
-            if int(item.get("runtime") or 0) > 0
-            and (runtime_min is None or int(item["runtime"]) >= runtime_min)
-            and (runtime_max is None or int(item["runtime"]) <= runtime_max)
+            if (
+                item.get("_tmdb_discovery_prefiltered") is True
+                and not item.get("runtime")
+            )
+            or (
+                int(item.get("runtime") or 0) > 0
+                and (runtime_min is None or int(item["runtime"]) >= runtime_min)
+                and (runtime_max is None or int(item["runtime"]) <= runtime_max)
+            )
         ]
     if genre:
         normalized_genre = genre.casefold().strip()

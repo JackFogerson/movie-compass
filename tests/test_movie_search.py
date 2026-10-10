@@ -213,6 +213,68 @@ def test_company_filter_discovers_related_tmdb_company_titles(monkeypatch) -> No
     assert main._company_filter_candidate_ids("Lionsgate", "movie") == [20, 10]
 
 
+def test_combined_filter_discovery_scans_every_tmdb_page(monkeypatch) -> None:
+    main = import_module("app.main")
+    monkeypatch.setattr(main.settings, "tmdb_api_key", "test-key")
+    captured_rows = []
+
+    class FakeClient:
+        def __init__(self, _key):
+            pass
+
+        def search_company(self, query):
+            assert query == "Lionsgate"
+            return [{"id": 1, "name": "Lionsgate"}]
+
+        def discover_filtered(self, media_type, *, page, filters):
+            assert media_type == "movie"
+            assert filters["with_companies"] == "1"
+            assert filters["with_genres"] == 35
+            assert filters["primary_release_date.gte"] == "2000-01-01"
+            return {
+                "results": [
+                    {
+                        "id": page,
+                        "title": f"Film {page}",
+                        "release_date": "2001-01-01",
+                        "genre_ids": [35],
+                    }
+                ],
+                "total_pages": 3,
+                "total_results": 3,
+            }
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "TmdbClient", FakeClient)
+    monkeypatch.setattr(
+        main,
+        "merge_discovery_results",
+        lambda _path, rows: captured_rows.extend(rows),
+    )
+
+    ids, coverage = main._discover_filtered_candidate_ids(
+        [{"category": "companies", "value": "Lionsgate"}],
+        None,
+        "movie",
+        year_min=2000,
+        genre="Comedy",
+    )
+
+    assert ids == [1, 2, 3]
+    assert coverage == {
+        "mode": "tmdb_discover",
+        "matches_reported": 3,
+        "matches_retrieved": 3,
+        "pages_scanned": 3,
+        "page_cap": main.DISCOVERY_MAX_PAGES,
+        "truncated": False,
+    }
+    assert len(captured_rows) == 3
+    assert captured_rows[0]["production_companies"] == [{"id": 1, "name": "Lionsgate"}]
+
+
 def test_local_search_includes_cached_tmdb_only_titles(tmp_path: Path, monkeypatch) -> None:
     main = import_module("app.main")
     artifact = tmp_path / "artifacts" / "movielens-32m-test"
@@ -287,10 +349,10 @@ def test_manual_rating_search_uses_cached_result_during_tmdb_outage(monkeypatch)
         {
             "tmdb_id": 1058424,
             "title": "Hope",
-                "year": 2026,
-                "poster_url": "https://image.tmdb.org/t/p/w185/hope.jpg",
-                "media_type": "movie",
-                "adult": False,
-            }
+            "year": 2026,
+            "poster_url": "https://image.tmdb.org/t/p/w185/hope.jpg",
+            "media_type": "movie",
+            "adult": False,
+        }
     ]
     assert "bundled catalog" in result["warning"]

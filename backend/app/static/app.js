@@ -766,6 +766,8 @@ function requestParams() {
   if (filters.runtime_max) params.set("runtime_max", filters.runtime_max);
   if (filters.title_filter) params.set("title_filter", filters.title_filter);
   if (filters.metadata_filters.length) params.set("metadata_filters", JSON.stringify(filters.metadata_filters));
+  if (filters.certification !== "all") params.set("certification", filters.certification);
+  params.set("availability", availabilityInput.value);
   params.set("country", "US");
   return params;
 }
@@ -780,9 +782,11 @@ function updateViewLabel(report) {
   const range = report.available_candidate_years;
   const universe = report.candidate_universe || report.candidates_considered;
   const tmdbTotal = catalogStatus?.tmdb_daily_export?.eligible_movies;
-  document.querySelector("#catalog-range").textContent =
-    `Rankable now: ${universe?.toLocaleString() || "unknown"} · ${range.minimum}–${range.maximum}` +
-    (tmdbTotal ? ` · TMDB universe synced: ${tmdbTotal.toLocaleString()}` : "");
+  const discovery = report.discovery_coverage;
+  document.querySelector("#catalog-range").textContent = discovery
+    ? `TMDB matches: ${Number(discovery.matches_reported ?? discovery.matches_retrieved ?? 0).toLocaleString()} · Retrieved: ${Number(discovery.matches_retrieved ?? 0).toLocaleString()} · Scored: ${Number(discovery.candidates_scored ?? 0).toLocaleString()}${discovery.truncated ? " · TMDB result cap reached" : ""}`
+    : `Rankable now: ${universe?.toLocaleString() || "unknown"} · ${range.minimum}–${range.maximum}` +
+      (tmdbTotal ? ` · TMDB universe synced: ${tmdbTotal.toLocaleString()}` : "");
 }
 
 function displayReport(report) {
@@ -1472,6 +1476,8 @@ async function buildGroupRecommendations() {
     year_max: filters.year_max ? Number(filters.year_max) : null,
     runtime_min: filters.runtime_min ? Number(filters.runtime_min) : null,
     runtime_max: filters.runtime_max ? Number(filters.runtime_max) : null,
+    certification: filters.certification === "all" ? null : filters.certification,
+    availability: groupAvailabilityInput.value,
     country: "US",
   };
   try {
@@ -1483,11 +1489,15 @@ async function buildGroupRecommendations() {
     const result = await responseJson(response);
     if (!response.ok) throw new Error(result.detail || "Group ranking failed");
     const screened = Number(result.catalog_candidates_screened || 0);
+    const discovery = result.discovery_coverage;
+    const discoveryMessage = discovery
+      ? `TMDB reported ${Number(discovery.matches_reported ?? 0).toLocaleString()} matches; ${Number(discovery.matches_retrieved ?? 0).toLocaleString()} were retrieved and ${Number(discovery.candidates_scored ?? 0).toLocaleString()} could be scored for everyone${discovery.truncated ? " (TMDB's result cap was reached)" : ""}. `
+      : "";
     const screenMessage = screened
       ? `Each profile screened ${screened.toLocaleString()} movies matching these filters. `
       : "Each profile screened the available catalog. ";
     groupStatus.textContent =
-      screenMessage +
+      discoveryMessage + screenMessage +
       `${result.candidate_union.toLocaleString()} strongest and weakest finalists across the profiles were compared head-to-head; ${result.eligible_for_everyone.toLocaleString()} had a usable score for everyone. ` +
       `Ranked in ${((performance.now() - startedAt) / 1000).toFixed(1)} seconds. ` +
       "The group score rewards a strong average while protecting the least enthusiastic person." +
