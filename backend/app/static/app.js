@@ -91,6 +91,7 @@ const groupGenreInput = document.querySelector("#group-genre");
 const groupMediaTypeInput = document.querySelector("#group-media-type");
 const groupRuntimeInput = document.querySelector("#group-runtime");
 const groupAvailabilityInput = document.querySelector("#group-availability");
+const groupExcludeAnyWatchedInput = document.querySelector("#group-exclude-any-watched");
 const groupIncludeWatchedInput = document.querySelector("#group-include-watched");
 const groupMovieQueryInput = document.querySelector("#group-movie-query");
 const groupMovieSearchYearInput = document.querySelector("#group-movie-search-year");
@@ -271,6 +272,10 @@ function descriptorPhrases(match) {
   ];
   if (kind === "cast member") return [`films featuring ${titleCase}`];
   if (kind === "release era") return [`films from the ${value}`, `movies from the ${value}`];
+  if (kind === "production country") return [`films produced in ${titleCase}`];
+  if (kind === "production company") return [`films from ${titleCase}`];
+  if (kind === "runtime") return [`films running ${value}`];
+  if (kind === "content rating") return [`${value.toUpperCase()}-rated films`];
   if (kind === "original language") {
     const languageNames = { de: "German", es: "Spanish", fr: "French", it: "Italian", ja: "Japanese", ko: "Korean", zh: "Chinese" };
     return [
@@ -874,6 +879,7 @@ async function showProfileStats() {
           ${tasteRows("Actors", "actors", taste.actors)}
           ${tasteRows("Languages", "languages", taste.languages)}
           ${tasteRows("Production countries", "countries", taste.countries)}
+          ${tasteRows("Production companies", "companies", taste.companies)}
           ${tasteRows("Runtime", "runtimes", taste.runtimes)}
           ${tasteRows("Movie popularity", "popularity", taste.popularity)}
           ${tasteRows("US content ratings", "certifications", taste.certifications)}
@@ -900,6 +906,7 @@ async function showProfileStats() {
       value("Decades explored", facts.decades_explored),
       value("Languages explored", facts.languages_explored),
       value("Production countries explored", facts.countries_explored),
+      value("Production companies explored", facts.companies_explored),
       value(
         "US content ratings found",
         facts.certification_coverage_percent == null
@@ -1315,6 +1322,7 @@ async function buildGroupRecommendations() {
     media_type: groupMediaTypeInput.value,
     genre: groupGenreInput.value || null,
     include_watched: groupIncludeWatchedInput.checked,
+    exclude_any_watched: groupExcludeAnyWatchedInput.checked,
     year_min: groupYearMinInput.value ? Number(groupYearMinInput.value) : null,
     year_max: groupYearMaxInput.value ? Number(groupYearMaxInput.value) : null,
     runtime_min: runtimeMinimum,
@@ -1338,9 +1346,11 @@ async function buildGroupRecommendations() {
       `${result.candidate_union.toLocaleString()} strongest and weakest finalists across the profiles were compared head-to-head; ${result.eligible_for_everyone.toLocaleString()} had a usable score for everyone. ` +
       `Ranked in ${((performance.now() - startedAt) / 1000).toFixed(1)} seconds. ` +
       "The group score rewards a strong average while protecting the least enthusiastic person." +
-      (result.include_watched
-        ? " Movies seen by the whole group are included."
-        : " Movies everyone has already seen are hidden; partially watched choices remain eligible.");
+      (result.exclude_any_watched
+        ? " Anything already seen by any selected profile is hidden."
+        : result.include_watched
+          ? " Titles seen by the whole group are included."
+          : " Titles everyone has seen are hidden; partially watched choices remain eligible.");
     const groupRecommendations = recommendationFiltered(result.recommendations, groupAvailabilityInput, groupCertificationInput, Number(groupLimitInput.value));
     groupRecommendations.forEach((movie) => groupResults.append(renderMovie(movie)));
     if (!groupRecommendations.length) {
@@ -1526,6 +1536,12 @@ deleteProfileButton.addEventListener("click", deleteProfile);
 searchMovieButton.addEventListener("click", searchMovieScores);
 buildGroupButton.addEventListener("click", buildGroupRecommendations);
 searchGroupMovieButton.addEventListener("click", searchGroupMovieScores);
+groupExcludeAnyWatchedInput.addEventListener("change", () => {
+  if (groupExcludeAnyWatchedInput.checked) groupIncludeWatchedInput.checked = false;
+});
+groupIncludeWatchedInput.addEventListener("change", () => {
+  if (groupIncludeWatchedInput.checked) groupExcludeAnyWatchedInput.checked = false;
+});
 profileSelect.addEventListener("change", () => {
   user = profileSelect.value;
   document.body.dataset.user = user;

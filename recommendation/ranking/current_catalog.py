@@ -79,6 +79,14 @@ def humanize_metadata_matches(matches: tuple[str, ...]) -> str:
             readable.append(f"films from the {value}")
         elif kind == "original language":
             readable.append(f"{value.upper()}-language films")
+        elif kind == "production country":
+            readable.append(f"films produced in {value.title()}")
+        elif kind == "production company":
+            readable.append(f"films from {value.title()}")
+        elif kind == "runtime":
+            readable.append(f"films running {value}")
+        elif kind == "content rating":
+            readable.append(f"{value.upper()}-rated films")
         else:
             readable.append(value or match)
     return _join_naturally(readable)
@@ -133,6 +141,14 @@ def humanize_caution_matches(matches: tuple[str, ...]) -> str:
             readable.append(
                 f"{language}-language films have been less predictable matches for you"
             )
+        elif kind == "production country":
+            readable.append(f"films produced in {value.title()} have been a mixed fit for you")
+        elif kind == "production company":
+            readable.append(f"films from {value.title()} have been less consistent for you")
+        elif kind == "runtime":
+            readable.append(f"films running {value} have been less consistent matches for you")
+        elif kind == "content rating":
+            readable.append(f"{value.upper()}-rated films have usually scored lower for you")
     return _join_naturally(readable)
 
 

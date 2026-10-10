@@ -269,6 +269,30 @@ def test_group_keeps_partially_watched_movies_without_rewatch_toggle(monkeypatch
     assert report["eligible_for_everyone"] == 1
 
 
+def test_group_can_exclude_every_title_seen_by_anyone(monkeypatch) -> None:
+    def fake_generate(_artifact, *, user, include_watched, **_kwargs):
+        assert include_watched is True
+        return {"recommendations": [_movie(10, 4.0, user), _movie(20, 3.8, user)]}
+
+    monkeypatch.setattr(service, "generate_recommendations", fake_generate)
+    monkeypatch.setattr(
+        service,
+        "_watched_by_user",
+        lambda _users: {"alice": {10}, "bob": set()},
+    )
+
+    report = service.generate_group_recommendations(
+        Path("exclude-any-watched-artifact"),
+        ["alice", "bob"],
+        include_watched=True,
+        exclude_any_watched=True,
+        bottom_limit=0,
+    )
+
+    assert [movie["tmdb_id"] for movie in report["recommendations"]] == [20]
+    assert report["exclude_any_watched"] is True
+
+
 def test_taste_splits_never_use_a_movie_watched_by_any_group_member(monkeypatch) -> None:
     scores = {
         "alice": {10: 5.0, 20: 4.5},

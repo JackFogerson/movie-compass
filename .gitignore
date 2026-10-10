@@ -4,11 +4,14 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-temp-*/
+.test-tmp-*/
 .ruff_cache/
 .mypy_cache/
 data/raw/
 data/processed/
 data/*.sqlite3
+data/*.sqlite3-shm
+data/*.sqlite3-wal
 ml/artifacts/
 *.egg-info/
 build/
@@ -17,6 +20,7 @@ dist/
 .desktop-smoke*/
 .website-repo/
 logs/
+logs-local-*.log
 
 # The shared, non-personal MovieLens model is intentionally portable. Profile
 # rankings, evaluations, and fitted personal baselines remain ignored.

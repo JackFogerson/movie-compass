@@ -9,8 +9,19 @@ def _details(index: int) -> dict:
     return {
         "release_date": f"202{index % 5}-01-01",
         "original_language": "en",
+        "runtime": 105,
         "overview": f"Story number {index} about memory and identity",
         "genres": [{"name": "Drama" if index % 2 else "Horror"}],
+        "production_countries": [{"name": "United States of America"}],
+        "production_companies": [{"name": "Pixar Animation Studios"}],
+        "release_dates": {
+            "results": [
+                {
+                    "iso_3166_1": "US",
+                    "release_dates": [{"type": 3, "certification": "PG-13"}],
+                }
+            ]
+        },
         "keywords": {"keywords": [{"name": "memory"}]},
         "credits": {
             "crew": [{"job": "Director", "name": f"Director {index % 3}"}],
@@ -25,6 +36,10 @@ def test_metadata_text_includes_rich_features() -> None:
     assert "keyword_memory" in text
     assert "director_director_1" in text
     assert "cast_actor_1" in text
+    assert "country_united_states_of_america" in text
+    assert "company_pixar_animation_studios" in text
+    assert "runtime_90_119_minutes" in text
+    assert "certification_pg-13" in text
 
 
 def test_metadata_text_keeps_initialed_cast_name_in_one_feature() -> None:

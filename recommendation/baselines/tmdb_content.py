@@ -14,6 +14,10 @@ FEATURE_LABELS = {
     "cast": "cast member",
     "decade": "release era",
     "language": "original language",
+    "country": "production country",
+    "company": "production company",
+    "runtime": "runtime",
+    "certification": "content rating",
 }
 
 
@@ -30,6 +34,48 @@ def _meaningful_structured_value(prefix: str, value: str) -> bool:
     return any(len(part) > 1 for part in value.replace("-", " ").split())
 
 
+def _runtime_bucket(details: dict) -> str | None:
+    runtime = details.get("runtime")
+    if not runtime:
+        return None
+    minutes = int(runtime)
+    if minutes < 90:
+        return "Under 90 minutes"
+    if minutes < 120:
+        return "90–119 minutes"
+    if minutes < 150:
+        return "120–149 minutes"
+    return "150+ minutes"
+
+
+def _content_rating(details: dict) -> str | None:
+    if details.get("certification"):
+        return str(details["certification"]).strip() or None
+    release_rows = details.get("release_dates", {}).get("results", [])
+    for country in release_rows:
+        if country.get("iso_3166_1") != "US":
+            continue
+        release_priority = {3: 0, 2: 1, 4: 2, 5: 3, 6: 4, 1: 5}
+        certifications = sorted(
+            (
+                item
+                for item in country.get("release_dates", [])
+                if str(item.get("certification") or "").strip()
+            ),
+            key=lambda item: release_priority.get(int(item.get("type") or 0), 9),
+        )
+        values = [
+            str(item.get("certification") or "").strip()
+            for item in certifications
+        ]
+        if values:
+            return values[0]
+    for country in details.get("content_ratings", {}).get("results", []):
+        if country.get("iso_3166_1") == "US" and country.get("rating"):
+            return str(country["rating"]).strip()
+    return None
+
+
 def _display_structured_value(details: dict, prefix: str, token_value: str) -> str:
     """Recover exact TMDB spelling after a person name was normalized for the model."""
     if prefix == "cast":
@@ -44,6 +90,16 @@ def _display_structured_value(details: dict, prefix: str, token_value: str) -> s
         rows = details.get("keywords", {}).get("keywords", [])
     elif prefix == "genre":
         rows = details.get("genres", [])
+    elif prefix == "country":
+        rows = details.get("production_countries", [])
+    elif prefix == "company":
+        rows = details.get("production_companies", [])
+    elif prefix == "runtime":
+        value = _runtime_bucket(details)
+        return value.casefold() if value else token_value.replace("_", " ")
+    elif prefix == "certification":
+        value = _content_rating(details)
+        return value.casefold() if value else token_value.replace("_", " ")
     else:
         return token_value.replace("_", " ")
     expected = f"{prefix}_{token_value}"
@@ -65,10 +121,33 @@ def metadata_text(details: dict) -> str:
         for item in details.get("credits", {}).get("cast", [])[:8]
         if item.get("name")
     ]
+    countries = [
+        _token("country", item["name"])
+        for item in details.get("production_countries", [])
+        if item.get("name")
+    ]
+    companies = [
+        _token("company", item["name"])
+        for item in details.get("production_companies", [])
+        if item.get("name")
+    ]
+    runtime_bucket = _runtime_bucket(details)
+    runtime = [_token("runtime", runtime_bucket)] if runtime_bucket else []
+    content_rating = _content_rating(details)
+    certification = [_token("certification", content_rating)] if content_rating else []
     release = details.get("release_date") or ""
     decade = f"decade_{release[:3]}0" if release[:4].isdigit() else "decade_unknown"
     language = _token("language", details.get("original_language") or "unknown")
-    weighted_tokens = genres * 3 + keywords * 2 + directors * 3 + cast
+    weighted_tokens = (
+        genres * 3
+        + keywords * 2
+        + directors * 3
+        + cast
+        + countries * 2
+        + companies * 2
+        + runtime
+        + certification
+    )
     return " ".join(
         [*weighted_tokens, decade, language, details.get("overview") or ""]
     )

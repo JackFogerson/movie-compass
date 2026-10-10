@@ -74,9 +74,10 @@ class GroupRecommendationRequest(BaseModel):
     runtime_max: int | None = Field(default=None, ge=1, le=600)
     popularity: str = "all"
     genre: str | None = Field(default=None, max_length=60)
-    media_type: str = Field(default="all", pattern=r"^(all|movie|tv)$")
+    media_type: str = Field(default="movie", pattern=r"^(all|movie|tv)$")
     country: str = Field(default="US", pattern=r"^[A-Z]{2}$")
     include_watched: bool = False
+    exclude_any_watched: bool = False
     limit: int = Field(default=20, ge=1, le=30)
 
 
@@ -572,6 +573,7 @@ def profile_stat_movies(
         "actors",
         "languages",
         "countries",
+        "companies",
         "runtimes",
         "popularity",
         "certifications",
@@ -654,6 +656,7 @@ def profile_stat_category(
         "actors",
         "languages",
         "countries",
+        "companies",
         "runtimes",
         "popularity",
         "certifications",
@@ -1344,6 +1347,7 @@ def group_recommendations(request: GroupRecommendationRequest) -> dict:
             genre=request.genre,
             media_type=request.media_type,
             include_watched=request.include_watched,
+            exclude_any_watched=request.exclude_any_watched,
         )
         return _with_display_metadata(report, request.country)
     except (ValueError, typer.BadParameter) as error:

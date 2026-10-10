@@ -148,6 +148,14 @@ def _caution_clause(match: str) -> str:
         return f"movies from the {value} have usually scored lower"
     if kind == "original language":
         return f"{value.upper()}-language films have been less predictable"
+    if kind == "production country":
+        return f"films produced in {value.title()} have been a mixed fit"
+    if kind == "production company":
+        return f"films from {value.title()} have been less consistent"
+    if kind == "runtime":
+        return f"films running {value} have been less consistent"
+    if kind == "content rating":
+        return f"{value.upper()}-rated films have usually scored lower"
     return f"{value or match} has been a weaker signal"
 
 
@@ -349,6 +357,7 @@ def generate_group_recommendations(
     title_query: str | None = None,
     candidate_tmdb_ids: str | None = None,
     include_watched: bool = False,
+    exclude_any_watched: bool = False,
     shortlist_per_user: int = 500,
     bottom_limit: int = 5,
     divisive_limit: int = 5,
@@ -436,6 +445,7 @@ def generate_group_recommendations(
             "lowest_recommendations": [],
             "most_divisive": [],
             "include_watched": include_watched,
+            "exclude_any_watched": exclude_any_watched,
         }
 
     initial_ids = {
@@ -515,6 +525,8 @@ def generate_group_recommendations(
         disagreement = float(values.std())
         watched_by = [user for user in normalized if tmdb_id in watched_by_user[user]]
         watched_fraction = len(watched_by) / len(normalized)
+        if watched_by and exclude_any_watched:
+            continue
         if watched_fraction == 1.0 and not include_watched:
             continue
         rewatch_penalty = 0.2 * watched_fraction
@@ -600,6 +612,7 @@ def generate_group_recommendations(
         "genre_filter": genre,
         "title_query": title_query,
         "include_watched": include_watched,
+        "exclude_any_watched": exclude_any_watched,
         "rewatch_penalty_maximum": 0.2,
         "recommendations": selected,
         "lowest_recommendations": lowest,

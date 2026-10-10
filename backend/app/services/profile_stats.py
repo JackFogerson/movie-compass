@@ -100,6 +100,14 @@ def metadata_match_stat_target(match: str) -> tuple[str, str] | None:
         return "decades", value
     if kind == "original language":
         return "languages", _language_label(value)
+    if kind == "production country":
+        return "countries", value
+    if kind == "production company":
+        return "companies", value
+    if kind == "runtime":
+        return "runtimes", value
+    if kind == "content rating":
+        return "certifications", value
     return None
 
 
@@ -182,6 +190,7 @@ def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ..
         "actors": tuple(sorted(set(_named_values(cast)[:8]))),
         "languages": (language,),
         "countries": tuple(sorted(set(_named_values(details.get("production_countries"))))),
+        "companies": tuple(sorted(set(_named_values(details.get("production_companies"))))),
         "runtimes": (runtime_label,) if runtime_label else (),
         "popularity": (
             POPULARITY_NAMES[classify_popularity(int(year) if year else None, vote_count)],
@@ -211,6 +220,7 @@ def build_taste_breakdown(
             "actors",
             "languages",
             "countries",
+            "companies",
             "runtimes",
             "popularity",
             "certifications",
@@ -254,6 +264,9 @@ def build_taste_breakdown(
         "countries": _summarize(
             categories["countries"], profile_average, minimum=repeated_minimum, limit=limit
         ),
+        "companies": _summarize(
+            categories["companies"], profile_average, minimum=repeated_minimum, limit=limit
+        ),
         "runtimes": _summarize(
             categories["runtimes"], profile_average, minimum=repeated_minimum, limit=limit
         ),
@@ -271,6 +284,7 @@ def build_taste_breakdown(
             "decades_explored": len(categories["decades"]),
             "languages_explored": len(categories["languages"]),
             "countries_explored": len(categories["countries"]),
+            "companies_explored": len(categories["companies"]),
             "certification_known_films": known_certifications,
             "certification_unknown_films": unknown_certifications,
             "certification_coverage_percent": round(

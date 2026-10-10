@@ -68,6 +68,7 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "keywords": {"keywords": [{"name": "space travel"}]},
             "original_language": "en",
             "production_countries": [{"name": "United States of America"}],
+            "production_companies": [{"name": "Pixar Animation Studios"}],
             "vote_count": 15_000,
             "credits": {"cast": [{"name": "Favorite Actor"}]},
             "release_dates": {
@@ -81,6 +82,7 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "keywords": {"keywords": [{"name": "space travel"}]},
             "original_language": "en",
             "production_countries": [{"name": "United States of America"}],
+            "production_companies": [{"name": "Pixar Animation Studios"}],
             "vote_count": 12_000,
             "credits": {"cast": [{"name": "Favorite Actor"}]},
             "release_dates": {
@@ -94,6 +96,7 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
             "keywords": {"keywords": [{"name": "grief"}]},
             "original_language": "fr",
             "production_countries": [{"name": "France"}],
+            "production_companies": [{"name": "StudioCanal"}],
             "vote_count": 30,
             "credits": {"cast": [{"name": "Another Actor"}]},
         },
@@ -109,11 +112,20 @@ def test_taste_breakdown_shrinks_feature_expectations_toward_profile_average() -
     assert result["popularity"][0]["label"] == "Blockbusters"
     assert result["certifications"][0]["label"] == "PG-13"
     assert result["countries"][0]["label"] == "United States of America"
+    assert result["companies"][0]["label"] == "Pixar Animation Studios"
     assert result["fun_facts"]["certification_known_films"] == 2
     assert result["fun_facts"]["certification_unknown_films"] == 1
     assert result["fun_facts"]["certification_coverage_percent"] == 66.7
     assert result["fun_facts"]["decades_explored"] == 2
     assert result["fun_facts"]["countries_explored"] == 2
+    assert result["fun_facts"]["companies_explored"] == 2
+
+
+def test_production_company_ranking_descriptor_maps_to_stats() -> None:
+    assert metadata_match_stat_target("production company: Pixar Animation Studios") == (
+        "companies",
+        "Pixar Animation Studios",
+    )
 
 
 def test_full_taste_breakdown_keeps_singletons_without_truncation() -> None:
