@@ -405,6 +405,56 @@ def _theme_filter_candidate_ids(value: str, media_type: str) -> list[int] | None
         client.close()
 
 
+def _company_filter_candidate_ids(value: str, media_type: str) -> list[int] | None:
+    """Expand a production-company filter through TMDB's complete company catalog."""
+    if not value or not settings.tmdb_api_key:
+        return None
+    client = TmdbClient(settings.tmdb_api_key)
+    try:
+        companies = client.search_company(value)
+        wanted = normalize_title(value).replace(" ", "")
+        related = [
+            item
+            for item in companies
+            if wanted in normalize_title(item.get("name") or "").replace(" ", "")
+            or normalize_title(item.get("name") or "").replace(" ", "") in wanted
+        ][:5]
+        selected = related or companies[:1]
+        if not selected:
+            return []
+        media_types = [media_type] if media_type in {"movie", "tv"} else ["movie", "tv"]
+        ids: list[int] = []
+        for company in selected:
+            for selected_type in media_types:
+                for page in range(1, 6):
+                    response = client.discover_by_company(
+                        int(company["id"]), selected_type, page
+                    )
+                    for row in response.get("results", []):
+                        raw_id = int(row["id"])
+                        tmdb_id = tv_catalog_id(raw_id) if selected_type == "tv" else raw_id
+                        if tmdb_id not in ids:
+                            ids.append(tmdb_id)
+                    if len(ids) >= 250 or page >= min(
+                        int(response.get("total_pages") or page), 5
+                    ):
+                        break
+                if len(ids) >= 250:
+                    break
+            if len(ids) >= 250:
+                break
+        available, _ = load_or_fetch_details(
+            client,
+            set(ids[:250]),
+            settings.processed_data_dir / "tmdb-rich-details.json",
+        )
+        return [tmdb_id for tmdb_id in ids if tmdb_id in available]
+    except (RetryError, TmdbError):
+        return None
+    finally:
+        client.close()
+
+
 def _parse_metadata_filters(raw: str | None) -> list[dict[str, str]]:
     if not raw:
         return []
@@ -437,6 +487,8 @@ def _expanded_filter_candidate_ids(
             if category in {"actors", "directors"}
             else _theme_filter_candidate_ids(value, media_type)
             if category == "themes"
+            else _company_filter_candidate_ids(value, media_type)
+            if category == "companies"
             else None
         )
         if ids is not None:

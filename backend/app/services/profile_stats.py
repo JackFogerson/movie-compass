@@ -219,6 +219,13 @@ def metadata_filter_labels(details: dict, category: str) -> tuple[str, ...]:
 
 def matches_metadata_filter(details: dict, category: str, value: str) -> bool:
     """Match a selected suggestion using the same labels shown in profile statistics."""
+    if category == "companies":
+        requested = re.sub(r"[^\w]+", "", value.casefold())
+        return bool(requested) and any(
+            requested in re.sub(r"[^\w]+", "", label.casefold())
+            or re.sub(r"[^\w]+", "", label.casefold()) in requested
+            for label in metadata_filter_labels(details, category)
+        )
     return any(
         category_label_matches(label, value)
         for label in metadata_filter_labels(details, category)

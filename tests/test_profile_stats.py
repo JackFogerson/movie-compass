@@ -185,3 +185,15 @@ def test_full_taste_breakdown_keeps_singletons_without_truncation() -> None:
 
     assert len(result["themes"]) == 60
     assert all(item["films"] == 1 for item in result["themes"])
+
+
+def test_company_filter_matches_spacing_and_related_company_names() -> None:
+    details = {
+        "production_companies": [
+            {"name": "Lions Gate Films"},
+            {"name": "Lionsgate UK"},
+        ]
+    }
+
+    assert matches_metadata_filter(details, "companies", "Lionsgate")
+    assert not matches_metadata_filter(details, "companies", "Pixar")

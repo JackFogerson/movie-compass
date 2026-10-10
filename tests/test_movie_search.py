@@ -179,6 +179,40 @@ def test_theme_filter_discovers_tmdb_keyword_titles(monkeypatch) -> None:
     assert main._theme_filter_candidate_ids("Halloween", "movie") == [20, 10]
 
 
+def test_company_filter_discovers_related_tmdb_company_titles(monkeypatch) -> None:
+    main = import_module("app.main")
+    monkeypatch.setattr(main.settings, "tmdb_api_key", "test-key")
+
+    class FakeClient:
+        def __init__(self, _key):
+            pass
+
+        def search_company(self, query):
+            assert query == "Lionsgate"
+            return [
+                {"id": 1, "name": "Lionsgate"},
+                {"id": 2, "name": "Lionsgate UK"},
+                {"id": 3, "name": "Unrelated Studio"},
+            ]
+
+        def discover_by_company(self, company_id, media_type, page=1):
+            assert media_type == "movie"
+            rows = {1: [{"id": 20}], 2: [{"id": 10}]}
+            return {"results": rows[company_id], "total_pages": 1}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "TmdbClient", FakeClient)
+    monkeypatch.setattr(
+        main,
+        "load_or_fetch_details",
+        lambda _client, ids, _path: ({value: {} for value in ids}, len(ids)),
+    )
+
+    assert main._company_filter_candidate_ids("Lionsgate", "movie") == [20, 10]
+
+
 def test_local_search_includes_cached_tmdb_only_titles(tmp_path: Path, monkeypatch) -> None:
     main = import_module("app.main")
     artifact = tmp_path / "artifacts" / "movielens-32m-test"

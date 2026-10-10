@@ -502,8 +502,8 @@ def main(
             metadata_matches=metadata_matches,
             metadata_cautions=metadata_cautions,
             movielens_rating_counts=movielens_rating_counts,
-            limit=bottom_limit,
-            max_per_primary_genre=bottom_limit,
+            limit=bottom_limit + limit,
+            max_per_primary_genre=bottom_limit + limit,
             descending=False,
             rating_interval=rating_interval,
             review_signal_scale=review_signal_scale,
@@ -513,6 +513,10 @@ def main(
         if bottom_limit > 0
         else []
     )
+    top_tmdb_ids = {item.tmdb_id for item in ranked}
+    lowest_ranked = [
+        item for item in lowest_ranked if item.tmdb_id not in top_tmdb_ids
+    ][:bottom_limit]
     output = {
         "generated_at": datetime.now(UTC).isoformat(),
         "user": user,
@@ -560,7 +564,10 @@ def main(
             total_users=int(manifest["users"]),
         ),
         "recommendations": [item.to_dict() for item in ranked],
-        "lowest_recommendations": [item.to_dict() for item in lowest_ranked],
+        "lowest_recommendations": [
+            {**item.to_dict(), "rank": index + 1}
+            for index, item in enumerate(lowest_ranked)
+        ],
     }
     output_dir = artifact_dir / "recommendations" / user
     target = output_dir / f"{scope}.json"
