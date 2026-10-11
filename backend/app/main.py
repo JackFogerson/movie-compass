@@ -38,6 +38,7 @@ from app.services.profile_export import build_profile_archive, restore_profile_a
 from app.services.profile_stats import (
     LANGUAGE_NAMES,
     build_metadata_filter_index,
+    build_public_opinion_splits,
     build_taste_breakdown,
     category_label_matches,
     metadata_filter_options,
@@ -1129,17 +1130,21 @@ def profile_stats(
     for rating in ratings:
         distribution[f"{rating:.1f}"] = distribution.get(f"{rating:.1f}", 0) + 1
     details_raw = _load_profile_detail_cache()
-    details_by_id = {int(key): value for key, value in details_raw.items() if str(key).isdigit()}
+    details_by_id = {
+        int(key): value for key, value in details_raw.items() if str(key).lstrip("-").isdigit()
+    }
+    rated_movies = [
+        {
+            "title": row.title,
+            "rating": float(row.rating),
+            "year": row.year,
+            "tmdb_id": row.tmdb_id,
+            "runtime": row.runtime,
+        }
+        for row in rows
+    ]
     taste_breakdown = build_taste_breakdown(
-        [
-            {
-                "rating": float(row.rating),
-                "year": row.year,
-                "tmdb_id": row.tmdb_id,
-                "runtime": row.runtime,
-            }
-            for row in rows
-        ],
+        rated_movies,
         details_by_id,
     )
     return {
@@ -1161,6 +1166,10 @@ def profile_stats(
         ],
         "rating_distribution": distribution,
         "taste_breakdown": taste_breakdown,
+        "public_opinion_splits": build_public_opinion_splits(
+            rated_movies,
+            details_by_id,
+        ),
         "watched_year_filter": {
             "minimum": watched_year_min,
             "maximum": watched_year_max,

@@ -1009,6 +1009,20 @@ async function showProfileStats() {
           ${surpriseList("Three lowest versus expected", accuracy.rating_surprises.lowest_actual_minus_expected_top3 || [accuracy.rating_surprises.lowest_actual_minus_expected])}
         </section>`
       : `<section class="prediction-surprises"><div><strong>Rated movies vs expected</strong><span>${escapeHtml(accuracy.detail || "At least ten model-linked ratings are needed for an honest held-out comparison.")}</span></div></section>`;
+    const opinion = stats.public_opinion_splits || {};
+    const opinionList = (label, items) => `
+      <div class="public-opinion-list">
+        <strong>${escapeHtml(label)}</strong>
+        ${items?.length
+          ? items.map((item, index) => `<div class="public-opinion-row"><span>${index + 1}. ${escapeHtml(item.title)}${item.year ? ` (${item.year})` : ""}</span><small>You: ${item.personal_rating.toFixed(1)} ★ · TMDB viewers: ${item.public_rating.toFixed(1)} ★ · <b>${item.difference >= 0 ? "+" : ""}${item.difference.toFixed(1)} ★</b></small><small>${item.public_votes.toLocaleString()} public votes</small></div>`).join("")
+          : `<span class="public-opinion-empty">No qualifying movies on this side of the comparison.</span>`}
+      </div>`;
+    const publicOpinion = `
+      <section class="public-opinion-splits">
+        <div class="public-opinion-intro"><strong>Your taste versus the public</strong><span>${escapeHtml(opinion.explanation || "Your ratings compared with TMDB's public averages.")} Only films with at least ${Number(opinion.minimum_public_votes || 25).toLocaleString()} public votes are included.</span></div>
+        ${opinionList("Most underrated by you", opinion.underrated)}
+        ${opinionList("Most overrated by you", opinion.overrated)}
+      </section>`;
     const taste = stats.taste_breakdown || {};
     const tasteRows = (heading, category, items) => items?.length ? `
       <section class="taste-stat-card">
@@ -1065,6 +1079,7 @@ async function showProfileStats() {
         ? `<div class="rewatch-audit"><span><b>Rewatches counted from Letterboxd diary</b></span>${stats.rewatched_titles.map((item) => `<span>${escapeHtml(item.title)} · <b>${item.count}</b></span>`).join("")}</div>`
         : `<div class="rewatch-audit"><span>No diary entries were marked as rewatches.</span></div>`,
       `<div class="rating-distribution"><span><b>Rating distribution</b></span>${distribution || "No ratings"}</div>`,
+      publicOpinion,
       surprises,
       tasteBreakdown,
     ].join("");

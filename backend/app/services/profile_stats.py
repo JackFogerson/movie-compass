@@ -121,6 +121,7 @@ def metadata_match_stat_target(match: str) -> tuple[str, str] | None:
 
 def category_label_matches(label: str, requested: str) -> bool:
     """Match exact labels and legacy model labels that omitted punctuation."""
+
     def normalize(value: str) -> str:
         return re.sub(r"[^\w]+", " ", value.casefold()).strip()
 
@@ -156,6 +157,58 @@ def _summarize(
     top_count = (limit + 1) // 2
     bottom_count = limit - top_count
     return [*rows[:top_count], *rows[-bottom_count:]]
+
+
+def build_public_opinion_splits(
+    movies: list[dict],
+    details_by_id: dict[int, dict],
+    *,
+    limit: int = 5,
+    minimum_public_votes: int = 25,
+) -> dict:
+    """Compare a profile's ratings with TMDB's public average on the same 5-star scale."""
+    comparisons = []
+    for movie in movies:
+        tmdb_id = movie.get("tmdb_id")
+        if tmdb_id is None or movie.get("rating") is None:
+            continue
+        details = details_by_id.get(int(tmdb_id), {})
+        vote_average = float(details.get("vote_average") or 0.0)
+        vote_count = int(details.get("vote_count") or 0)
+        if vote_average <= 0 or vote_count < minimum_public_votes:
+            continue
+        personal_rating = float(movie["rating"])
+        public_rating = vote_average / 2.0
+        comparisons.append(
+            {
+                "tmdb_id": int(tmdb_id),
+                "title": str(movie.get("title") or details.get("title") or "Untitled"),
+                "year": movie.get("year"),
+                "personal_rating": round(personal_rating, 2),
+                "public_rating": round(public_rating, 2),
+                "difference": round(personal_rating - public_rating, 2),
+                "public_votes": vote_count,
+            }
+        )
+    underrated = sorted(
+        (item for item in comparisons if item["difference"] > 0),
+        key=lambda item: (item["difference"], item["public_votes"]),
+        reverse=True,
+    )[:limit]
+    overrated = sorted(
+        (item for item in comparisons if item["difference"] < 0),
+        key=lambda item: (item["difference"], -item["public_votes"]),
+    )[:limit]
+    return {
+        "underrated": underrated,
+        "overrated": overrated,
+        "eligible_films": len(comparisons),
+        "minimum_public_votes": minimum_public_votes,
+        "explanation": (
+            "Underrated means you rated it higher than TMDB viewers; overrated means you "
+            "rated it lower. Both ratings use a five-star scale."
+        ),
+    }
 
 
 def movie_category_labels(movie: dict, details: dict) -> dict[str, tuple[str, ...]]:
@@ -227,8 +280,7 @@ def matches_metadata_filter(details: dict, category: str, value: str) -> bool:
             for label in metadata_filter_labels(details, category)
         )
     return any(
-        category_label_matches(label, value)
-        for label in metadata_filter_labels(details, category)
+        category_label_matches(label, value) for label in metadata_filter_labels(details, category)
     )
 
 
@@ -265,9 +317,7 @@ def metadata_filter_options(
         "mode": option_mode,
         "total": len(counts),
         "query": query,
-        "options": [
-            {"value": label, "films": count} for label, count in returned
-        ],
+        "options": [{"value": label, "films": count} for label, count in returned],
     }
 
 
@@ -322,9 +372,7 @@ def build_taste_breakdown(
                 categories[category][label].append(rating)
 
     standard_deviation = sqrt(mean((rating - profile_average) ** 2 for rating in ratings))
-    unknown_certifications = len(
-        categories["certifications"].get(UNKNOWN_CERTIFICATION, [])
-    )
+    unknown_certifications = len(categories["certifications"].get(UNKNOWN_CERTIFICATION, []))
     known_certifications = len(ratings) - unknown_certifications
     repeated_minimum = 1 if include_singletons else 2
     return {
@@ -375,8 +423,6 @@ def build_taste_breakdown(
             "companies_explored": len(categories["companies"]),
             "certification_known_films": known_certifications,
             "certification_unknown_films": unknown_certifications,
-            "certification_coverage_percent": round(
-                known_certifications / len(ratings) * 100, 1
-            ),
+            "certification_coverage_percent": round(known_certifications / len(ratings) * 100, 1),
         },
     }

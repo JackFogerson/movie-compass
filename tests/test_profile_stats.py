@@ -1,4 +1,5 @@
 from app.services.profile_stats import (
+    build_public_opinion_splits,
     build_taste_breakdown,
     category_label_matches,
     matches_metadata_filter,
@@ -6,6 +7,34 @@ from app.services.profile_stats import (
     metadata_match_stat_target,
     movie_category_labels,
 )
+
+
+def test_public_opinion_splits_compare_personal_and_tmdb_ratings() -> None:
+    movies = [
+        {"tmdb_id": 1, "title": "Loved One", "year": 2001, "rating": 5.0},
+        {"tmdb_id": 2, "title": "Rejected One", "year": 2002, "rating": 1.0},
+        {"tmdb_id": 3, "title": "Tiny Sample", "year": 2003, "rating": 5.0},
+    ]
+    details = {
+        1: {"vote_average": 5.0, "vote_count": 500},
+        2: {"vote_average": 9.0, "vote_count": 1_000},
+        3: {"vote_average": 2.0, "vote_count": 3},
+    }
+
+    result = build_public_opinion_splits(movies, details)
+
+    assert result["eligible_films"] == 2
+    assert result["underrated"][0] == {
+        "tmdb_id": 1,
+        "title": "Loved One",
+        "year": 2001,
+        "personal_rating": 5.0,
+        "public_rating": 2.5,
+        "difference": 2.5,
+        "public_votes": 500,
+    }
+    assert result["overrated"][0]["title"] == "Rejected One"
+    assert result["overrated"][0]["difference"] == -3.5
 
 
 def test_language_stats_use_readable_consistent_labels() -> None:

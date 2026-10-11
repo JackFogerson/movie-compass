@@ -197,6 +197,14 @@ body:not(.show-adult-posters) .manual-sensitive-poster:not(.revealed) em { displ
 .prediction-surprise-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .prediction-surprise-row span { color: var(--text); }
 .prediction-surprise-row b { color: var(--gold); }
+.public-opinion-splits { grid-column: 1 / -1; display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 8px; }
+.public-opinion-intro, .public-opinion-list { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #0b1014; }
+.public-opinion-splits span, .public-opinion-splits small { display: block; color: var(--muted); font-size: .7rem; line-height: 1.45; }
+.public-opinion-splits strong { display: block; margin: 3px 0; color: var(--text); }
+.public-opinion-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.public-opinion-row span { color: var(--text); }
+.public-opinion-row b { color: var(--gold); }
+.public-opinion-empty { margin-top: 8px; }
 .taste-breakdown { grid-column: 1 / -1; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: #0b1014; }
 .taste-breakdown-heading { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
 .taste-breakdown-heading span { max-width: 680px; color: var(--muted); font-size: .72rem; line-height: 1.5; }
@@ -510,6 +518,7 @@ summary { cursor: pointer; }
   .profile-update-form > div, .selected-manual-movie, .manual-review-label { grid-column: 1 / -1; }
   .profile-stats { grid-template-columns: 1fr 1fr; }
   .prediction-surprises { grid-template-columns: 1fr; }
+  .public-opinion-splits { grid-template-columns: 1fr; }
   .profile-editor-form, .profiles-hero, .taste-stat-grid { grid-template-columns: 1fr 1fr; }
   .accuracy-highlights, .accuracy-tables { grid-template-columns: 1fr 1fr; }
   .danger-zone { grid-template-columns: 1fr 1fr; }
