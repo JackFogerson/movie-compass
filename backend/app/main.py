@@ -35,6 +35,11 @@ from app.services.letterboxd_import import import_letterboxd_archive
 from app.services.local_catalog_mapping import map_pending_from_artifact
 from app.services.profile_accuracy import profile_accuracy as evaluate_profile_accuracy
 from app.services.profile_export import build_profile_archive, restore_profile_archive
+from app.services.profile_source import (
+    incoming_letterboxd_profile,
+    profile_source_mismatch,
+    stored_letterboxd_profile,
+)
 from app.services.profile_stats import (
     LANGUAGE_NAMES,
     build_metadata_filter_index,
@@ -1034,6 +1039,7 @@ def profiles() -> dict:
                 {
                     "slug": owner.slug,
                     "display_name": owner.display_name,
+                    "letterboxd_profile": stored_letterboxd_profile(session, owner.id),
                     "films": total,
                     "rated": rated,
                     "mapped": mapped,
@@ -2175,6 +2181,7 @@ def recommendations(
 async def import_profile(
     user: Annotated[str, Form()],
     archive: Annotated[UploadFile, File()],
+    allow_profile_mismatch: Annotated[bool, Form()] = False,
 ) -> dict:
     """Import a Letterboxd ZIP locally, then map its titles to TMDB."""
     from app.services.recommendation_reports import VALID_USER
@@ -2195,7 +2202,37 @@ async def import_profile(
                         raise HTTPException(status_code=413, detail="Export exceeds 100 MB")
                     handle.write(chunk)
             with SessionLocal() as session:
-                imported = import_letterboxd_archive(session, target, user)
+                existing = session.scalar(select(User).where(User.slug == user))
+                expected_profile = (
+                    stored_letterboxd_profile(session, existing.id)
+                    if existing is not None
+                    else None
+                )
+                incoming_profile = incoming_letterboxd_profile(archive.filename, target)
+                if (
+                    profile_source_mismatch(expected_profile, incoming_profile)
+                    and not allow_profile_mismatch
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "letterboxd_profile_mismatch",
+                            "expected": expected_profile,
+                            "received": incoming_profile,
+                            "message": (
+                                f"This profile is linked to Letterboxd @{expected_profile}, but "
+                                f"the selected export belongs to @{incoming_profile}."
+                            ),
+                        },
+                    )
+                imported = import_letterboxd_archive(
+                    session,
+                    target,
+                    user,
+                    archive_name=archive.filename,
+                    source_profile=incoming_profile,
+                )
+                saved_source_profile = stored_letterboxd_profile(session, imported.user_id)
                 totals = {"processed": 0, "matched": 0, "ambiguous": 0, "unresolved": 0}
                 mapping_warning = None
                 portable_mapping_restored = restore_profile_archive(
@@ -2282,6 +2319,7 @@ async def import_profile(
         "archive_retained": False,
         "mapping_complete": mapping_warning is None,
         "mapping_warning": mapping_warning,
+        "letterboxd_profile": saved_source_profile,
         "review_signal_policy": review_policy,
     }
 

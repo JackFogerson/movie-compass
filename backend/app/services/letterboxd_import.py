@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db.models import ImportMapping, ImportRun, Movie, User, UserMovieInteraction
+from app.services.profile_source import normalize_letterboxd_profile
 from app.services.tmdb_mapping import upsert_interaction
 from ingestion.letterboxd.parser import LetterboxdMovie, parse_export
 
@@ -83,6 +84,8 @@ def import_letterboxd_archive(
     user_slug: str = "default",
     *,
     force: bool = False,
+    archive_name: str | None = None,
+    source_profile: str | None = None,
 ) -> PersistedImportResult:
     archive_hash = _archive_sha256(archive_path)
     parsed_movies, report = parse_export(archive_path)
@@ -110,6 +113,17 @@ def import_letterboxd_archive(
         )
     )
     if prior and prior.status == "completed" and not force:
+        normalized_source = normalize_letterboxd_profile(source_profile)
+        if normalized_source:
+            try:
+                prior_report = json.loads(prior.report_json or "{}")
+            except json.JSONDecodeError:
+                prior_report = {}
+            if not prior_report.get("letterboxd_profile"):
+                prior_report["letterboxd_profile"] = normalized_source
+                prior.report_json = json.dumps(prior_report)
+            if archive_name and prior.archive_name == "letterboxd.zip":
+                prior.archive_name = archive_name[:500]
         _sync_mapped_interactions(session, user.id)
         session.commit()
         return PersistedImportResult(prior.id, user.id, archive_hash, len(movies), 0, 0, 0, True)
@@ -118,7 +132,7 @@ def import_letterboxd_archive(
         user_id=user.id,
         source="letterboxd",
         archive_sha256=archive_hash,
-        archive_name=archive_path.name,
+        archive_name=(archive_name or archive_path.name)[:500],
         status="running",
         report_json="{}",
     )
@@ -166,7 +180,11 @@ def import_letterboxd_archive(
             session.delete(mapping)
         removed_stale = len(stale)
     run.status = "completed"
-    run.report_json = json.dumps(asdict(report))
+    report_payload = asdict(report)
+    normalized_source = normalize_letterboxd_profile(source_profile)
+    if normalized_source:
+        report_payload["letterboxd_profile"] = normalized_source
+    run.report_json = json.dumps(report_payload)
     run.completed_at = datetime.now(UTC)
     session.commit()
     return PersistedImportResult(

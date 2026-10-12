@@ -14,6 +14,7 @@ from app.db.models import (
     UserMovieInteraction,
 )
 from app.services.letterboxd_import import import_letterboxd_archive
+from app.services.profile_source import stored_letterboxd_profile
 from app.services.tmdb_mapping import map_pending_letterboxd, resolve_letterboxd_links
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
@@ -78,6 +79,21 @@ def test_import_is_idempotent_by_archive_and_source_key(tmp_path: Path) -> None:
     assert second.already_imported is True
     assert session.scalar(select(func.count()).select_from(ImportRun)) == 1
     assert session.scalar(select(func.count()).select_from(ImportMapping)) == 1
+
+
+def test_import_retains_original_letterboxd_profile_identity(tmp_path: Path) -> None:
+    session = _session()
+    archive = _archive(tmp_path / "letterboxd-jackalthegreat-2026-10-12-00-15-utc.zip")
+    imported = import_letterboxd_archive(
+        session,
+        archive,
+        "viewer",
+        archive_name=archive.name,
+        source_profile="jackalthegreat",
+    )
+    run = session.scalar(select(ImportRun).where(ImportRun.user_id == imported.user_id))
+    assert run.archive_name == archive.name
+    assert stored_letterboxd_profile(session, imported.user_id) == "jackalthegreat"
 
 
 def test_force_reprocesses_a_completed_archive(tmp_path: Path) -> None:

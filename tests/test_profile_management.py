@@ -212,6 +212,50 @@ def test_fresh_install_can_start_without_profiles(monkeypatch) -> None:
     assert response.json() == {"profiles": []}
 
 
+def test_profile_update_warns_before_importing_another_letterboxd_account(monkeypatch) -> None:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        owner = User(slug="viewer", display_name="Viewer")
+        session.add(owner)
+        session.flush()
+        session.add(
+            ImportRun(
+                user_id=owner.id,
+                source="letterboxd",
+                archive_sha256="a" * 64,
+                archive_name="letterboxd-correctperson-2026-10-01-00-00-utc.zip",
+                status="completed",
+                report_json=json.dumps({"letterboxd_profile": "correctperson"}),
+            )
+        )
+        session.commit()
+
+    main_module = import_module("app.main")
+    monkeypatch.setattr(main_module, "SessionLocal", session_factory)
+    response = TestClient(app).post(
+        "/profiles/import",
+        data={"user": "viewer"},
+        files={
+            "archive": (
+                "letterboxd-wrongperson-2026-10-12-00-00-utc.zip",
+                b"not parsed because the mismatch is checked first",
+                "application/zip",
+            )
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "letterboxd_profile_mismatch",
+        "expected": "correctperson",
+        "received": "wrongperson",
+        "message": (
+            "This profile is linked to Letterboxd @correctperson, but the selected export "
+            "belongs to @wrongperson."
+        ),
+    }
+
+
 def test_profile_rating_history_is_newest_first(monkeypatch) -> None:
     session_factory = _session_factory()
     with session_factory() as session:
@@ -262,6 +306,14 @@ def test_profile_export_is_rating_only_and_reimportable(monkeypatch) -> None:
         session.flush()
         session.add_all(
             [
+                ImportRun(
+                    user_id=owner.id,
+                    source="letterboxd",
+                    archive_sha256="a" * 64,
+                    archive_name="letterboxd-traveler-2026-10-12-00-15-utc.zip",
+                    status="completed",
+                    report_json=json.dumps({"letterboxd_profile": "traveler"}),
+                ),
                 ImportMapping(
                     user_id=owner.id,
                     source="letterboxd",
@@ -300,6 +352,7 @@ def test_profile_export_is_rating_only_and_reimportable(monkeypatch) -> None:
     with zipfile.ZipFile(io.BytesIO(response.content)) as bundle:
         manifest = json.loads(bundle.read("movie-compass-profile.json"))
         assert manifest["display_name"] == "Traveling Viewer"
+        assert manifest["letterboxd_profile"] == "traveler"
         assert manifest["rated_films"] == 1
         assert bundle.read("ratings.csv").decode("utf-8-sig").count("Alien") == 1
         assert b"Unrated" not in bundle.read("ratings.csv")
