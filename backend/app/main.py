@@ -2,6 +2,7 @@ import csv
 import gzip
 import io
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import date
@@ -11,14 +12,17 @@ from pathlib import Path
 from shutil import rmtree
 from statistics import median
 from tempfile import TemporaryDirectory
-from typing import Annotated
+from threading import RLock
+from typing import Annotated, Callable
+from uuid import uuid4
 
 import typer
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from starlette.concurrency import run_in_threadpool
 from tenacity import RetryError
 
 from app.cli.recommend import main as generate_recommendations
@@ -74,6 +78,7 @@ from recommendation.ranking.current_catalog import TMDB_GENRES
 
 settings = get_settings()
 configure_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 app = FastAPI(title="Personal Movie Recommender", version="0.1.0")
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -97,6 +102,8 @@ TV_GENRES = {
     37: "Western",
 }
 DISCOVERY_MAX_PAGES = 500
+LOCAL_IMPORT_JOBS: dict[str, dict] = {}
+LOCAL_IMPORT_JOBS_LOCK = RLock()
 
 
 class MetadataFilterRequest(BaseModel):
@@ -2177,137 +2184,153 @@ def recommendations(
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@app.post("/profiles/import")
-async def import_profile(
-    user: Annotated[str, Form()],
-    archive: Annotated[UploadFile, File()],
-    allow_profile_mismatch: Annotated[bool, Form()] = False,
-) -> dict:
-    """Import a Letterboxd ZIP locally, then map its titles to TMDB."""
+def _validate_profile_import(user: str, filename: str | None) -> None:
     from app.services.recommendation_reports import VALID_USER
 
     if not VALID_USER.fullmatch(user):
         raise HTTPException(status_code=422, detail="Use only letters, numbers, - or _ for profile")
-    if not archive.filename or not archive.filename.casefold().endswith(".zip"):
+    if not filename or not filename.casefold().endswith(".zip"):
         raise HTTPException(status_code=422, detail="Select a Letterboxd .zip export")
+
+
+def _assert_profile_source_match(
+    target: Path,
+    user: str,
+    filename: str,
+    allow_profile_mismatch: bool,
+) -> None:
+    with SessionLocal() as session:
+        existing = session.scalar(select(User).where(User.slug == user))
+        expected_profile = (
+            stored_letterboxd_profile(session, existing.id) if existing is not None else None
+        )
+        incoming_profile = incoming_letterboxd_profile(filename, target)
+    if profile_source_mismatch(expected_profile, incoming_profile) and not allow_profile_mismatch:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "letterboxd_profile_mismatch",
+                "expected": expected_profile,
+                "received": incoming_profile,
+                "message": (
+                    f"This profile is linked to Letterboxd @{expected_profile}, but "
+                    f"the selected export belongs to @{incoming_profile}."
+                ),
+            },
+        )
+
+
+async def _save_profile_upload(archive: UploadFile, target: Path) -> None:
     max_bytes = 100 * 1024 * 1024
     size = 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("wb") as handle:
+        while chunk := await archive.read(1024 * 1024):
+            size += len(chunk)
+            if size > max_bytes:
+                raise HTTPException(status_code=413, detail="Export exceeds 100 MB")
+            handle.write(chunk)
+
+
+def _process_profile_import(
+    target: Path,
+    user: str,
+    filename: str,
+    allow_profile_mismatch: bool = False,
+    progress: Callable[[str], None] | None = None,
+) -> dict:
+    """Restore one profile without blocking FastAPI's event loop."""
+    update = progress or (lambda _message: None)
+    _assert_profile_source_match(target, user, filename, allow_profile_mismatch)
+    update("Restoring ratings and saved movie matches…")
     try:
-        with TemporaryDirectory(prefix="letterboxd-import-") as directory:
-            target = Path(directory) / "letterboxd.zip"
-            with target.open("wb") as handle:
-                while chunk := await archive.read(1024 * 1024):
-                    size += len(chunk)
-                    if size > max_bytes:
-                        raise HTTPException(status_code=413, detail="Export exceeds 100 MB")
-                    handle.write(chunk)
-            with SessionLocal() as session:
-                existing = session.scalar(select(User).where(User.slug == user))
-                expected_profile = (
-                    stored_letterboxd_profile(session, existing.id)
-                    if existing is not None
-                    else None
-                )
-                incoming_profile = incoming_letterboxd_profile(archive.filename, target)
-                if (
-                    profile_source_mismatch(expected_profile, incoming_profile)
-                    and not allow_profile_mismatch
-                ):
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "code": "letterboxd_profile_mismatch",
-                            "expected": expected_profile,
-                            "received": incoming_profile,
-                            "message": (
-                                f"This profile is linked to Letterboxd @{expected_profile}, but "
-                                f"the selected export belongs to @{incoming_profile}."
-                            ),
-                        },
-                    )
-                imported = import_letterboxd_archive(
-                    session,
-                    target,
-                    user,
-                    archive_name=archive.filename,
-                    source_profile=incoming_profile,
-                )
-                saved_source_profile = stored_letterboxd_profile(session, imported.user_id)
-                totals = {"processed": 0, "matched": 0, "ambiguous": 0, "unresolved": 0}
-                mapping_warning = None
-                portable_mapping_restored = restore_profile_archive(
-                    session,
-                    target,
-                    user,
-                    settings.processed_data_dir / "tmdb-rich-details.json",
-                )
-                totals["matched"] += portable_mapping_restored
-                local = map_pending_from_artifact(
-                    session,
-                    imported.user_id,
-                    _latest_artifact(settings.ml_artifacts_dir),
-                    settings.processed_data_dir / "tmdb-rich-details.json",
-                )
-                totals["matched"] += local.matched
-                client = TmdbClient(settings.tmdb_api_key) if settings.tmdb_api_key else None
-                if client is None:
-                    mapping_warning = (
-                        "Live TMDB mapping is unavailable; exact backup mappings and the "
-                        "bundled catalog were used. Unmapped films remain safely pending."
-                    )
-                else:
-                    try:
-                        while True:
-                            batch = map_pending_letterboxd(
-                                session,
-                                client,
-                                imported.user_id,
-                                limit=100,
-                                ttl_seconds=settings.tmdb_cache_ttl_seconds,
-                            )
-                            for key in totals:
-                                totals[key] += getattr(batch, key)
-                            if batch.processed < 100:
-                                break
-                        direct = resolve_letterboxd_links(session, client, imported.user_id)
-                        totals["matched"] += direct.matched
-                        mapped_tmdb_ids = {
-                            int(value)
-                            for value in session.scalars(
-                                select(Movie.tmdb_id)
-                                .join(ImportMapping, ImportMapping.movie_id == Movie.id)
-                                .where(
-                                    ImportMapping.user_id == imported.user_id,
-                                    ImportMapping.rating.is_not(None),
-                                    Movie.tmdb_id.is_not(None),
-                                )
-                            )
-                        }
-                        load_or_fetch_details(
-                            client,
-                            mapped_tmdb_ids,
-                            settings.processed_data_dir / "tmdb-rich-details.json",
-                        )
-                    except RetryError:
-                        mapping_warning = (
-                            "The export was imported, but TMDB mapping could not reach "
-                            "the network. "
-                            "Unmapped films remain safely pending."
-                        )
-                    finally:
-                        client.close()
-            review_policy = refresh_review_policy(
+        with SessionLocal() as session:
+            incoming_profile = incoming_letterboxd_profile(filename, target)
+            imported = import_letterboxd_archive(
+                session,
+                target,
+                user,
+                archive_name=filename,
+                source_profile=incoming_profile,
+            )
+            saved_source_profile = stored_letterboxd_profile(session, imported.user_id)
+            totals = {"processed": 0, "matched": 0, "ambiguous": 0, "unresolved": 0}
+            mapping_warning = None
+            portable_mapping_restored = restore_profile_archive(
+                session,
+                target,
                 user,
                 settings.processed_data_dir / "tmdb-rich-details.json",
-                settings.processed_data_dir / "review-policies" / f"{user}.json",
             )
-            clear_group_recommendation_cache()
+            totals["matched"] += portable_mapping_restored
+            update("Checking the bundled catalog for any remaining titles…")
+            local = map_pending_from_artifact(
+                session,
+                imported.user_id,
+                _latest_artifact(settings.ml_artifacts_dir),
+                settings.processed_data_dir / "tmdb-rich-details.json",
+            )
+            totals["matched"] += local.matched
+            client = TmdbClient(settings.tmdb_api_key) if settings.tmdb_api_key else None
+            if client is None:
+                mapping_warning = (
+                    "Live TMDB mapping is unavailable; exact backup mappings and the "
+                    "bundled catalog were used. Unmapped films remain safely pending."
+                )
+            else:
+                try:
+                    update("Checking unresolved titles with TMDB…")
+                    while True:
+                        batch = map_pending_letterboxd(
+                            session,
+                            client,
+                            imported.user_id,
+                            limit=100,
+                            ttl_seconds=settings.tmdb_cache_ttl_seconds,
+                        )
+                        for key in totals:
+                            totals[key] += getattr(batch, key)
+                        if batch.processed < 100:
+                            break
+                    direct = resolve_letterboxd_links(session, client, imported.user_id)
+                    totals["matched"] += direct.matched
+                    mapped_tmdb_ids = {
+                        int(value)
+                        for value in session.scalars(
+                            select(Movie.tmdb_id)
+                            .join(ImportMapping, ImportMapping.movie_id == Movie.id)
+                            .where(
+                                ImportMapping.user_id == imported.user_id,
+                                ImportMapping.rating.is_not(None),
+                                Movie.tmdb_id.is_not(None),
+                            )
+                        )
+                    }
+                    update("Refreshing posters, credits, and streaming metadata…")
+                    load_or_fetch_details(
+                        client,
+                        mapped_tmdb_ids,
+                        settings.processed_data_dir / "tmdb-rich-details.json",
+                    )
+                except RetryError:
+                    mapping_warning = (
+                        "The export was imported, but TMDB mapping could not reach "
+                        "the network. "
+                        "Unmapped films remain safely pending."
+                    )
+                finally:
+                    client.close()
+        update("Calibrating this profile's recommendations…")
+        review_policy = refresh_review_policy(
+            user,
+            settings.processed_data_dir / "tmdb-rich-details.json",
+            settings.processed_data_dir / "review-policies" / f"{user}.json",
+        )
+        clear_group_recommendation_cache()
     except HTTPException:
         raise
     except (ValueError, OSError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    finally:
-        await archive.close()
     return {
         "user": user,
         "import": asdict(imported),
@@ -2322,6 +2345,134 @@ async def import_profile(
         "letterboxd_profile": saved_source_profile,
         "review_signal_policy": review_policy,
     }
+
+
+@app.post("/profiles/import")
+async def import_profile(
+    user: Annotated[str, Form()],
+    archive: Annotated[UploadFile, File()],
+    allow_profile_mismatch: Annotated[bool, Form()] = False,
+) -> dict:
+    """Compatibility endpoint; processing runs outside the server event loop."""
+    _validate_profile_import(user, archive.filename)
+    filename = archive.filename or "profile.zip"
+    try:
+        with TemporaryDirectory(prefix="letterboxd-import-") as directory:
+            target = Path(directory) / "profile.zip"
+            await _save_profile_upload(archive, target)
+            return await run_in_threadpool(
+                _process_profile_import,
+                target,
+                user,
+                filename,
+                allow_profile_mismatch,
+            )
+    finally:
+        await archive.close()
+
+
+def _update_local_import_job(job_id: str, **values) -> None:
+    with LOCAL_IMPORT_JOBS_LOCK:
+        job = LOCAL_IMPORT_JOBS.get(job_id)
+        if job is not None:
+            job.update(values)
+
+
+def _run_local_import_job(
+    job_id: str,
+    target: Path,
+    user: str,
+    filename: str,
+    allow_profile_mismatch: bool,
+) -> None:
+    _update_local_import_job(
+        job_id,
+        status="running",
+        progress_message="Reading the profile backup…",
+    )
+    try:
+        result = _process_profile_import(
+            target,
+            user,
+            filename,
+            allow_profile_mismatch,
+            lambda message: _update_local_import_job(job_id, progress_message=message),
+        )
+        _update_local_import_job(
+            job_id,
+            status="succeeded",
+            progress_message="Profile import completed.",
+            result=result,
+        )
+    except HTTPException as error:
+        detail = error.detail
+        _update_local_import_job(
+            job_id,
+            status="failed",
+            progress_message="Profile import failed.",
+            error=detail if isinstance(detail, str) else json.dumps(detail),
+        )
+    except Exception as error:  # pragma: no cover - defensive desktop boundary
+        logger.exception("Local profile import job %s failed", job_id)
+        _update_local_import_job(
+            job_id,
+            status="failed",
+            progress_message="Profile import failed.",
+            error=f"{type(error).__name__}: {error}",
+        )
+    finally:
+        target.unlink(missing_ok=True)
+
+
+@app.post("/profiles/import/start", status_code=202)
+async def start_profile_import(
+    background_tasks: BackgroundTasks,
+    user: Annotated[str, Form()],
+    archive: Annotated[UploadFile, File()],
+    allow_profile_mismatch: Annotated[bool, Form()] = False,
+) -> dict:
+    """Queue a local import so large profiles never freeze the local server."""
+    _validate_profile_import(user, archive.filename)
+    filename = archive.filename or "profile.zip"
+    job_id = str(uuid4())
+    target = settings.data_dir / "jobs" / f"{job_id}.zip"
+    try:
+        await _save_profile_upload(archive, target)
+        _assert_profile_source_match(target, user, filename, allow_profile_mismatch)
+        with LOCAL_IMPORT_JOBS_LOCK:
+            if len(LOCAL_IMPORT_JOBS) >= 100:
+                oldest = next(iter(LOCAL_IMPORT_JOBS))
+                LOCAL_IMPORT_JOBS.pop(oldest, None)
+            LOCAL_IMPORT_JOBS[job_id] = {
+                "id": job_id,
+                "status": "queued",
+                "progress_message": "Upload received; import is queued.",
+                "result": None,
+                "error": None,
+            }
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    finally:
+        await archive.close()
+    background_tasks.add_task(
+        _run_local_import_job,
+        job_id,
+        target,
+        user,
+        filename,
+        allow_profile_mismatch,
+    )
+    return LOCAL_IMPORT_JOBS[job_id].copy()
+
+
+@app.get("/jobs/{job_id}")
+def local_import_job(job_id: str) -> dict:
+    with LOCAL_IMPORT_JOBS_LOCK:
+        job = LOCAL_IMPORT_JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Import job not found")
+        return job.copy()
 
 
 @app.post("/recommendations/{user}/refresh")

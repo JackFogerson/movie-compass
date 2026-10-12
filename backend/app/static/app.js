@@ -1619,15 +1619,15 @@ async function importArchive(slug, archive, button, status, idleLabel, allowProf
   status.textContent = "Reading rated films and mapping them to TMDB. This can take a minute.";
   try {
     let response;
-    let result;
+    let queued;
     while (true) {
       const form = new FormData();
       form.set("user", slug);
       form.set("archive", archive);
       form.set("allow_profile_mismatch", String(allowProfileMismatch));
-      response = await fetch("/profiles/import", { method: "POST", body: form });
-      result = await responseJson(response);
-      const detail = result.detail;
+      response = await fetch("/profiles/import/start", { method: "POST", body: form });
+      queued = await responseJson(response);
+      const detail = queued.detail;
       if (response.status === 409 && detail?.code === "letterboxd_profile_mismatch" && !allowProfileMismatch) {
         if (!window.confirm(profileMismatchMessage(detail.expected, detail.received))) {
           status.textContent = "Update cancelled. The selected export belongs to a different Letterboxd account.";
@@ -1640,6 +1640,20 @@ async function importArchive(slug, archive, button, status, idleLabel, allowProf
       if (!response.ok) throw new Error(typeof detail === "string" ? detail : detail?.message || "Import failed");
       break;
     }
+    let job;
+    for (let attempt = 0; attempt < 1800; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const jobResponse = await fetch(`/jobs/${encodeURIComponent(queued.id)}`);
+      job = await responseJson(jobResponse);
+      if (!jobResponse.ok) throw new Error(job.detail || "Import progress could not be loaded");
+      status.textContent = job.progress_message || "Import is still running…";
+      if (job.status === "failed") throw new Error(job.error || "Import failed");
+      if (job.status === "succeeded") break;
+    }
+    if (!job || job.status !== "succeeded") {
+      throw new Error("Import is still running. Keep Movie Compass open and try again shortly.");
+    }
+    const result = job.result;
     user = slug;
     document.body.dataset.user = slug;
     status.textContent = `Imported ${result.import.movies_staged} rated films. Building this profile's ranking now…`;

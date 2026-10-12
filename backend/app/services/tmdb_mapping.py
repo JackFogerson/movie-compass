@@ -86,6 +86,21 @@ def upsert_interaction(session: Session, mapping: ImportMapping, movie: Movie) -
         )
     )
     if interaction is None:
+        # SessionLocal disables autoflush. A portable profile may contain two
+        # Letterboxd rows that resolve to the same TMDB title, so the first
+        # interaction can still be pending in session.new and invisible to the
+        # SELECT above. Reuse it instead of scheduling a duplicate INSERT.
+        interaction = next(
+            (
+                pending
+                for pending in session.new
+                if isinstance(pending, UserMovieInteraction)
+                and pending.user_id == mapping.user_id
+                and pending.movie_id == movie.id
+            ),
+            None,
+        )
+    if interaction is None:
         interaction = UserMovieInteraction(
             user_id=mapping.user_id, movie_id=movie.id, source="letterboxd"
         )

@@ -256,6 +256,102 @@ def test_profile_update_warns_before_importing_another_letterboxd_account(monkey
     }
 
 
+def test_profile_import_can_run_as_a_polled_background_job(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    session_factory = _session_factory()
+    main_module = import_module("app.main")
+    monkeypatch.setattr(main_module, "SessionLocal", session_factory)
+    monkeypatch.setattr(main_module.settings, "data_dir", tmp_path / "data")
+    main_module.LOCAL_IMPORT_JOBS.clear()
+
+    def process(_target, user, _filename, _allow_mismatch, progress):
+        progress("Refreshing movie details…")
+        return {"user": user, "import": {"movies_staged": 321}}
+
+    monkeypatch.setattr(main_module, "_process_profile_import", process)
+    response = TestClient(app).post(
+        "/profiles/import/start",
+        data={"user": "large-profile"},
+        files={
+            "archive": (
+                "letterboxd-large-profile-2026-10-11-00-00-utc.zip",
+                b"test archive payload",
+                "application/zip",
+            )
+        },
+    )
+
+    assert response.status_code == 202
+    job_id = response.json()["id"]
+    completed = TestClient(app).get(f"/jobs/{job_id}")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "succeeded"
+    assert completed.json()["result"]["user"] == "large-profile"
+    assert not (tmp_path / "data" / "jobs" / f"{job_id}.zip").exists()
+
+
+def test_portable_restore_coalesces_two_rows_for_the_same_tmdb_movie(tmp_path: Path) -> None:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        owner = User(slug="duplicate-safe", display_name="Duplicate Safe")
+        session.add(owner)
+        session.flush()
+        session.add_all(
+            [
+                ImportMapping(
+                    user_id=owner.id,
+                    source="letterboxd",
+                    source_key="https://letterboxd.com/film/first-title/",
+                    title="First Title",
+                    year=2025,
+                    status="pending",
+                    rating=3.0,
+                    watched=True,
+                ),
+                ImportMapping(
+                    user_id=owner.id,
+                    source="letterboxd",
+                    source_key="https://letterboxd.com/film/alternate-title/",
+                    title="Alternate Title",
+                    year=2025,
+                    status="pending",
+                    rating=4.0,
+                    watched=True,
+                ),
+            ]
+        )
+        session.commit()
+
+    archive = tmp_path / "duplicate-title-backup.zip"
+    manifest = {
+        "format": "movie-compass-profile",
+        "version": 2,
+        "display_name": "Duplicate Safe",
+        "movies": [
+            {"title": "First Title", "year": 2025, "tmdb_id": 999, "media_type": "movie"},
+            {
+                "title": "Alternate Title",
+                "year": 2025,
+                "tmdb_id": 999,
+                "media_type": "movie",
+            },
+        ],
+    }
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("movie-compass-profile.json", json.dumps(manifest))
+        bundle.writestr("movie-compass-metadata.json", "{}")
+
+    with session_factory() as session:
+        restored = restore_profile_archive(session, archive, "duplicate-safe")
+        interactions = session.scalars(select(UserMovieInteraction)).all()
+
+    assert restored == 2
+    assert len(interactions) == 1
+    assert float(interactions[0].rating) == 4.0
+
+
 def test_profile_rating_history_is_newest_first(monkeypatch) -> None:
     session_factory = _session_factory()
     with session_factory() as session:
